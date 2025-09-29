@@ -1,0 +1,160 @@
+import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { ActivityType } from '@prisma/client';
+
+@Injectable()
+export class DiagramService {
+  constructor(private prisma: PrismaService) {}
+
+  async createDiagram(workspaceId: string, userId: string, name: string) {
+    // Verify user has access to workspace
+    await this.verifyWorkspaceAccess(workspaceId, userId);
+
+    return this.prisma.diagram.create({
+      data: {
+        name,
+        workspaceId,
+        data: {
+          classes: [],
+          relations: [],
+          metadata: {
+            createdBy: userId,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+  }
+
+  async getDiagramById(diagramId: string, userId: string) {
+    const diagram = await this.prisma.diagram.findUnique({
+      where: { id: diagramId },
+      include: {
+        workspace: {
+          include: {
+            collaborators: true,
+          },
+        },
+        classes: {
+          include: {
+            attributes: true,
+            methods: true,
+          },
+        },
+        relations: true,
+      },
+    });
+
+    if (!diagram) {
+      throw new NotFoundException('Diagram not found');
+    }
+
+    // Check access
+    const hasAccess = diagram.workspace.ownerId === userId ||
+      diagram.workspace.collaborators.some(c => c.userId === userId);
+
+    if (!hasAccess) {
+      throw new ForbiddenException('Access denied to this diagram');
+    }
+
+    return diagram;
+  }
+
+  async updateDiagram(diagramId: string, userId: string, data: any) {
+    // Verify access
+    await this.getDiagramById(diagramId, userId);
+
+    const updatedDiagram = await this.prisma.diagram.update({
+      where: { id: diagramId },
+      data: {
+        data,
+        version: { increment: 1 },
+      },
+    });
+
+    // Log activity
+    await this.prisma.diagramActivity.create({
+      data: {
+        action: ActivityType.UPDATE_CLASS,
+        changes: data,
+        userId,
+        diagramId,
+      },
+    });
+
+    return updatedDiagram;
+  }
+
+  async addUMLClass(diagramId: string, userId: string, classData: any) {
+    // Verify access
+    await this.getDiagramById(diagramId, userId);
+
+    const umlClass = await this.prisma.uMLClass.create({
+      data: {
+        name: classData.name,
+        position: classData.position || { x: 0, y: 0 },
+        diagramId,
+      },
+    });
+
+    // Add attributes if provided
+    if (classData.attributes && classData.attributes.length > 0) {
+      await this.prisma.uMLAttribute.createMany({
+        data: classData.attributes.map((attr: any) => ({
+          ...attr,
+          classId: umlClass.id,
+        })),
+      });
+    }
+
+    // Add methods if provided
+    if (classData.methods && classData.methods.length > 0) {
+      await this.prisma.uMLMethod.createMany({
+        data: classData.methods.map((method: any) => ({
+          ...method,
+          classId: umlClass.id,
+        })),
+      });
+    }
+
+    // Log activity
+    await this.prisma.diagramActivity.create({
+      data: {
+        action: ActivityType.CREATE_CLASS,
+        changes: classData,
+        userId,
+        diagramId,
+      },
+    });
+
+    return this.prisma.uMLClass.findUnique({
+      where: { id: umlClass.id },
+      include: {
+        attributes: true,
+        methods: true,
+      },
+    });
+  }
+
+  private async verifyWorkspaceAccess(workspaceId: string, userId: string) {
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: {
+        collaborators: true,
+      },
+    });
+
+    if (!workspace) {
+      throw new NotFoundException('Workspace not found');
+    }
+
+    const hasAccess = workspace.ownerId === userId ||
+      workspace.collaborators.some(c => c.userId === userId);
+
+    if (!hasAccess) {
+      throw new ForbiddenException('Access denied to this workspace');
+    }
+
+    return workspace;
+  }
+}
