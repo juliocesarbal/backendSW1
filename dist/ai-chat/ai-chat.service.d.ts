@@ -14,8 +14,10 @@ export declare class AiChatService {
     private generateBlogModel;
     private generateRestaurantModel;
     private generateGenericModel;
+    private validateAndFixModel;
+    private generateFallbackModel;
     chatWithAI(message: string, context?: any): Promise<{
-        response: string;
+        response: any;
         suggestions: string[];
     }>;
 }

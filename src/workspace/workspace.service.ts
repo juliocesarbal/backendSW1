@@ -117,6 +117,7 @@ export class WorkspaceService {
             id: true,
             name: true,
             version: true,
+            data: true,
             createdAt: true,
             updatedAt: true,
           },

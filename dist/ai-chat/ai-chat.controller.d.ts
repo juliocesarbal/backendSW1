@@ -16,8 +16,19 @@ export declare class AiChatController {
         message: string;
     }>;
     chat(chatDto: ChatDto): Promise<{
-        response: string;
+        response: any;
         suggestions: string[];
+    }>;
+    getSuggestions(): Promise<{
+        suggestions: string[];
+    }>;
+    getTemplates(): Promise<{
+        templates: {
+            id: string;
+            name: string;
+            description: string;
+            prompt: string;
+        }[];
     }>;
 }
 export {};

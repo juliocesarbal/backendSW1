@@ -50,6 +50,50 @@ let AiChatController = class AiChatController {
     async chat(chatDto) {
         return this.aiChatService.chatWithAI(chatDto.message, chatDto.context);
     }
+    async getSuggestions() {
+        return {
+            suggestions: [
+                'Create an e-commerce system with products, users, and orders',
+                'Design a library management system with books and borrowers',
+                'Build a blog platform with users, posts, and comments',
+                'Create a restaurant ordering system',
+                'Design a social media platform',
+                'Build a task management system',
+                'Create an inventory management system',
+                'Design a hotel booking system'
+            ]
+        };
+    }
+    async getTemplates() {
+        return {
+            templates: [
+                {
+                    id: 'ecommerce',
+                    name: 'E-commerce System',
+                    description: 'Complete online shopping platform with users, products, orders, and payments',
+                    prompt: 'Create an e-commerce system with User, Product, Category, Order, OrderItem, and Payment entities'
+                },
+                {
+                    id: 'library',
+                    name: 'Library Management',
+                    description: 'Book lending system with authors, books, borrowers, and loans',
+                    prompt: 'Design a library management system with Book, Author, Borrower, and Loan entities'
+                },
+                {
+                    id: 'blog',
+                    name: 'Blog Platform',
+                    description: 'Content management system with users, posts, comments, and categories',
+                    prompt: 'Create a blog platform with User, Post, Comment, and Category entities'
+                },
+                {
+                    id: 'restaurant',
+                    name: 'Restaurant Ordering',
+                    description: 'Food ordering system with customers, menu items, and orders',
+                    prompt: 'Build a restaurant ordering system with Customer, MenuItem, Order, and OrderItem entities'
+                }
+            ]
+        };
+    }
 };
 exports.AiChatController = AiChatController;
 __decorate([
@@ -67,6 +111,18 @@ __decorate([
     __metadata("design:paramtypes", [ChatDto]),
     __metadata("design:returntype", Promise)
 ], AiChatController.prototype, "chat", null);
+__decorate([
+    (0, common_1.Get)('suggestions'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AiChatController.prototype, "getSuggestions", null);
+__decorate([
+    (0, common_1.Get)('templates'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], AiChatController.prototype, "getTemplates", null);
 exports.AiChatController = AiChatController = __decorate([
     (0, common_1.Controller)('ai-chat'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),

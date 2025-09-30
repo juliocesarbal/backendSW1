@@ -13,6 +13,7 @@ exports.AiChatService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const config_1 = require("@nestjs/config");
+const axios_1 = require("axios");
 let AiChatService = class AiChatService {
     constructor(prisma, configService) {
         this.prisma = prisma;
@@ -20,29 +21,106 @@ let AiChatService = class AiChatService {
     }
     async generateUMLFromPrompt(prompt, diagramId, userId) {
         try {
-            const lowerPrompt = prompt.toLowerCase();
-            let mockUMLModel;
-            if (lowerPrompt.includes('ecommerce') || lowerPrompt.includes('e-commerce') || lowerPrompt.includes('shop')) {
-                mockUMLModel = this.generateEcommerceModel();
+            const geminiApiKey = this.configService.get('GEMINI_API_KEY');
+            if (!geminiApiKey) {
+                throw new Error('Gemini API key not configured');
             }
-            else if (lowerPrompt.includes('library') || lowerPrompt.includes('book')) {
-                mockUMLModel = this.generateLibraryModel();
+            const systemPrompt = `You are an expert UML diagram generator. Generate a JSON structure for a UML class diagram based on the user's request.
+
+IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, or additional text.
+
+The JSON should follow this exact structure:
+{
+  "name": "System Name",
+  "classes": [
+    {
+      "id": "unique_class_id",
+      "name": "ClassName",
+      "position": { "x": 100, "y": 100 },
+      "attributes": [
+        {
+          "id": "unique_attr_id",
+          "name": "attributeName",
+          "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
+          "stereotype": "id" (only for primary keys),
+          "nullable": true|false,
+          "unique": true|false
+        }
+      ],
+      "methods": [
+        {
+          "id": "unique_method_id",
+          "name": "methodName",
+          "returnType": "void|String|Boolean|etc",
+          "parameters": [],
+          "visibility": "public|private|protected"
+        }
+      ],
+      "stereotypes": ["entity"]
+    }
+  ],
+  "relations": [
+    {
+      "id": "unique_relation_id",
+      "sourceClassId": "source_class_id",
+      "targetClassId": "target_class_id",
+      "type": "OneToOne|OneToMany|ManyToOne|ManyToMany",
+      "name": "relationName"
+    }
+  ]
+}
+
+Rules:
+- Always include an "id" attribute with type "Long", stereotype "id", nullable: false, unique: true for each class
+- Use appropriate Java/JPA types: String, Long, Integer, BigDecimal, LocalDate, LocalDateTime, Boolean
+- Position classes in a grid layout (increment x by 300, y by 250 for each class)
+- Create meaningful relationships between classes
+- Include relevant methods for business logic
+
+User request: ${prompt}`;
+            const response = await axios_1.default.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: systemPrompt
+                            }
+                        ]
+                    }
+                ]
+            }, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-goog-api-key': geminiApiKey
+                }
+            });
+            if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                throw new Error('Invalid response from Gemini API');
             }
-            else if (lowerPrompt.includes('blog') || lowerPrompt.includes('post')) {
-                mockUMLModel = this.generateBlogModel();
+            const generatedText = response.data.candidates[0].content.parts[0].text;
+            let cleanedResponse = generatedText.trim();
+            if (cleanedResponse.startsWith('```json')) {
+                cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
             }
-            else if (lowerPrompt.includes('restaurant') || lowerPrompt.includes('order')) {
-                mockUMLModel = this.generateRestaurantModel();
+            else if (cleanedResponse.startsWith('```')) {
+                cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
             }
-            else {
-                mockUMLModel = this.generateGenericModel(prompt);
+            let umlModel;
+            try {
+                umlModel = JSON.parse(cleanedResponse);
             }
+            catch (parseError) {
+                console.error('Failed to parse Gemini response:', cleanedResponse);
+                umlModel = this.generateFallbackModel(prompt);
+            }
+            umlModel = this.validateAndFixModel(umlModel);
             await this.prisma.diagramActivity.create({
                 data: {
                     action: 'AI_GENERATION',
                     changes: {
                         prompt,
-                        generatedModel: mockUMLModel,
+                        generatedModel: umlModel,
+                        aiResponse: cleanedResponse,
                     },
                     userId,
                     diagramId,
@@ -50,13 +128,30 @@ let AiChatService = class AiChatService {
             });
             return {
                 success: true,
-                model: mockUMLModel,
-                message: 'UML model generated successfully',
+                model: umlModel,
+                message: 'UML model generated successfully with Gemini AI',
             };
         }
         catch (error) {
-            console.error('Error generating UML model:', error);
-            throw new Error('Failed to generate UML model');
+            console.error('Error generating UML model with Gemini:', error);
+            const fallbackModel = this.generateFallbackModel(prompt);
+            await this.prisma.diagramActivity.create({
+                data: {
+                    action: 'AI_GENERATION_FALLBACK',
+                    changes: {
+                        prompt,
+                        error: error.message,
+                        generatedModel: fallbackModel,
+                    },
+                    userId,
+                    diagramId,
+                },
+            });
+            return {
+                success: true,
+                model: fallbackModel,
+                message: 'UML model generated using fallback (AI temporarily unavailable)',
+            };
         }
     }
     generateEcommerceModel() {
@@ -344,15 +439,117 @@ let AiChatService = class AiChatService {
             relations: [],
         };
     }
+    validateAndFixModel(model) {
+        if (!model.name) {
+            model.name = 'Generated System';
+        }
+        if (!Array.isArray(model.classes)) {
+            model.classes = [];
+        }
+        if (!Array.isArray(model.relations)) {
+            model.relations = [];
+        }
+        model.classes = model.classes.map((cls, index) => {
+            if (!cls.id)
+                cls.id = `cls_${index + 1}`;
+            if (!cls.name)
+                cls.name = `Class${index + 1}`;
+            if (!cls.position)
+                cls.position = { x: 100 + (index % 3) * 300, y: 100 + Math.floor(index / 3) * 250 };
+            if (!Array.isArray(cls.attributes))
+                cls.attributes = [];
+            if (!Array.isArray(cls.methods))
+                cls.methods = [];
+            if (!Array.isArray(cls.stereotypes))
+                cls.stereotypes = ['entity'];
+            const hasIdAttribute = cls.attributes.some((attr) => attr.stereotype === 'id');
+            if (!hasIdAttribute) {
+                cls.attributes.unshift({
+                    id: `attr_${cls.id}_id`,
+                    name: 'id',
+                    type: 'Long',
+                    stereotype: 'id',
+                    nullable: false,
+                    unique: true
+                });
+            }
+            return cls;
+        });
+        return model;
+    }
+    generateFallbackModel(prompt) {
+        const lowerPrompt = prompt.toLowerCase();
+        if (lowerPrompt.includes('ecommerce') || lowerPrompt.includes('e-commerce') || lowerPrompt.includes('shop')) {
+            return this.generateEcommerceModel();
+        }
+        else if (lowerPrompt.includes('library') || lowerPrompt.includes('book')) {
+            return this.generateLibraryModel();
+        }
+        else if (lowerPrompt.includes('blog') || lowerPrompt.includes('post')) {
+            return this.generateBlogModel();
+        }
+        else if (lowerPrompt.includes('restaurant') || lowerPrompt.includes('order')) {
+            return this.generateRestaurantModel();
+        }
+        else {
+            return this.generateGenericModel(prompt);
+        }
+    }
     async chatWithAI(message, context) {
-        return {
-            response: `I understand you want to: "${message}". Let me help you create a UML diagram for that.`,
-            suggestions: [
-                'Create a User class with basic attributes',
-                'Add relationships between entities',
-                'Generate a complete e-commerce model',
-            ],
-        };
+        try {
+            const geminiApiKey = this.configService.get('GEMINI_API_KEY');
+            if (!geminiApiKey) {
+                throw new Error('Gemini API key not configured');
+            }
+            const systemPrompt = `You are an expert UML consultant and software architect. Help the user with their UML diagram questions and provide practical advice.
+
+Current context: ${context ? JSON.stringify(context) : 'No current diagram context'}
+
+User message: ${message}
+
+Provide a helpful response about UML design, best practices, or suggestions. Be concise but informative.`;
+            const response = await axios_1.default.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+                contents: [
+                    {
+                        parts: [
+                            {
+                                text: systemPrompt
+                            }
+                        ]
+                    }
+                ]
+            }, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-goog-api-key': geminiApiKey
+                }
+            });
+            if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+                throw new Error('Invalid response from Gemini API');
+            }
+            const aiResponse = response.data.candidates[0].content.parts[0].text;
+            return {
+                response: aiResponse,
+                suggestions: [
+                    'Generate a UML diagram for this concept',
+                    'Show me an e-commerce example',
+                    'Create a user management system',
+                    'Design a blog platform'
+                ],
+            };
+        }
+        catch (error) {
+            console.error('Error in AI chat:', error);
+            return {
+                response: `I understand you want to know about: "${message}". Let me help you create a UML diagram for that. You can ask me to generate specific diagrams or explain UML concepts.`,
+                suggestions: [
+                    'Create a User class with basic attributes',
+                    'Add relationships between entities',
+                    'Generate a complete e-commerce model',
+                    'Show me UML best practices'
+                ],
+            };
+        }
     }
 };
 exports.AiChatService = AiChatService;

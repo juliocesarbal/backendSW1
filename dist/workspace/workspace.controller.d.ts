@@ -99,6 +99,7 @@ export declare class WorkspaceController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            data: import("@prisma/client/runtime/library").JsonValue;
             version: number;
         }[];
     } & {
