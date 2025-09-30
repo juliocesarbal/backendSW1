@@ -136,6 +136,35 @@ export class DiagramService {
     });
   }
 
+  async deleteDiagram(diagramId: string, userId: string) {
+    // Verify access first
+    const diagram = await this.getDiagramById(diagramId, userId);
+
+    // Verify user is the owner or has editor role
+    const workspace = await this.prisma.workspace.findUnique({
+      where: { id: diagram.workspaceId },
+      include: {
+        collaborators: {
+          where: { userId },
+        },
+      },
+    });
+
+    const isOwner = workspace.ownerId === userId;
+    const isEditor = workspace.collaborators.some(c => c.userId === userId && c.role === 'EDITOR');
+
+    if (!isOwner && !isEditor) {
+      throw new ForbiddenException('Only workspace owner or editors can delete diagrams');
+    }
+
+    // Delete diagram (cascade will delete related data)
+    await this.prisma.diagram.delete({
+      where: { id: diagramId },
+    });
+
+    return { message: 'Diagram deleted successfully' };
+  }
+
   private async verifyWorkspaceAccess(workspaceId: string, userId: string) {
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },

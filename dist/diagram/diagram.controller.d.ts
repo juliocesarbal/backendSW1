@@ -121,5 +121,8 @@ export declare class DiagramController {
         diagramId: string;
         position: import("@prisma/client/runtime/library").JsonValue;
     }>;
+    deleteDiagram(id: string, req: any): Promise<{
+        message: string;
+    }>;
 }
 export {};

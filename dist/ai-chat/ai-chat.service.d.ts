@@ -13,6 +13,8 @@ export declare class AiChatService {
     private generateLibraryModel;
     private generateBlogModel;
     private generateRestaurantModel;
+    private generateHardwareStoreModel;
+    private generatePharmacyModel;
     private generateGenericModel;
     private validateAndFixModel;
     private generateFallbackModel;

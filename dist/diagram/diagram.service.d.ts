@@ -105,5 +105,8 @@ export declare class DiagramService {
         diagramId: string;
         position: import("@prisma/client/runtime/library").JsonValue;
     }>;
+    deleteDiagram(diagramId: string, userId: string): Promise<{
+        message: string;
+    }>;
     private verifyWorkspaceAccess;
 }

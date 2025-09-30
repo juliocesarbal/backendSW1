@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
 import { DiagramService } from './diagram.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsNotEmpty, IsString, IsObject, IsOptional } from 'class-validator';
@@ -69,5 +69,10 @@ export class DiagramController {
     @Request() req,
   ) {
     return this.diagramService.addUMLClass(id, req.user.userId, addClassDto);
+  }
+
+  @Delete(':id')
+  async deleteDiagram(@Param('id') id: string, @Request() req) {
+    return this.diagramService.deleteDiagram(id, req.user.userId);
   }
 }

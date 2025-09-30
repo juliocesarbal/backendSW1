@@ -122,6 +122,26 @@ let DiagramService = class DiagramService {
             },
         });
     }
+    async deleteDiagram(diagramId, userId) {
+        const diagram = await this.getDiagramById(diagramId, userId);
+        const workspace = await this.prisma.workspace.findUnique({
+            where: { id: diagram.workspaceId },
+            include: {
+                collaborators: {
+                    where: { userId },
+                },
+            },
+        });
+        const isOwner = workspace.ownerId === userId;
+        const isEditor = workspace.collaborators.some(c => c.userId === userId && c.role === 'EDITOR');
+        if (!isOwner && !isEditor) {
+            throw new common_1.ForbiddenException('Only workspace owner or editors can delete diagrams');
+        }
+        await this.prisma.diagram.delete({
+            where: { id: diagramId },
+        });
+        return { message: 'Diagram deleted successfully' };
+    }
     async verifyWorkspaceAccess(workspaceId, userId) {
         const workspace = await this.prisma.workspace.findUnique({
             where: { id: workspaceId },

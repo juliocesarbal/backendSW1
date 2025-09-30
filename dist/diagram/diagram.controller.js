@@ -71,6 +71,9 @@ let DiagramController = class DiagramController {
     async addUMLClass(id, addClassDto, req) {
         return this.diagramService.addUMLClass(id, req.user.userId, addClassDto);
     }
+    async deleteDiagram(id, req) {
+        return this.diagramService.deleteDiagram(id, req.user.userId);
+    }
 };
 exports.DiagramController = DiagramController;
 __decorate([
@@ -107,6 +110,14 @@ __decorate([
     __metadata("design:paramtypes", [String, AddClassDto, Object]),
     __metadata("design:returntype", Promise)
 ], DiagramController.prototype, "addUMLClass", null);
+__decorate([
+    (0, common_1.Delete)(':id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", Promise)
+], DiagramController.prototype, "deleteDiagram", null);
 exports.DiagramController = DiagramController = __decorate([
     (0, common_1.Controller)('diagrams'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),

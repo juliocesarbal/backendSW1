@@ -45,14 +45,14 @@ export class AiChatController {
   async getSuggestions() {
     return {
       suggestions: [
-        'Create an e-commerce system with products, users, and orders',
-        'Design a library management system with books and borrowers',
-        'Build a blog platform with users, posts, and comments',
-        'Create a restaurant ordering system',
-        'Design a social media platform',
-        'Build a task management system',
-        'Create an inventory management system',
-        'Design a hotel booking system'
+        'Crear un sistema de farmacia',
+        'Diseñar una ferretería con productos y ventas',
+        'Crear un e-commerce con productos y pedidos',
+        'Modelar un sistema de biblioteca',
+        'Generar un blog con posts y comentarios',
+        'Crear un sistema de restaurante',
+        'Diseñar un hospital con pacientes y doctores',
+        'Modelar una escuela con estudiantes y profesores'
       ]
     };
   }
@@ -62,28 +62,34 @@ export class AiChatController {
     return {
       templates: [
         {
+          id: 'farmacia',
+          name: 'Sistema de Farmacia',
+          description: 'Sistema completo de farmacia con medicamentos, clientes, ventas y proveedores',
+          prompt: 'Crear un sistema de farmacia con Medicamento, Cliente, Venta y Proveedor'
+        },
+        {
+          id: 'ferreteria',
+          name: 'Sistema de Ferretería',
+          description: 'Gestión de ferretería con productos, categorías, clientes y ventas',
+          prompt: 'Diseñar una ferretería con Producto, Categoría, Cliente, Venta y Proveedor'
+        },
+        {
           id: 'ecommerce',
-          name: 'E-commerce System',
-          description: 'Complete online shopping platform with users, products, orders, and payments',
-          prompt: 'Create an e-commerce system with User, Product, Category, Order, OrderItem, and Payment entities'
+          name: 'E-commerce',
+          description: 'Plataforma de compras online con usuarios, productos, pedidos y pagos',
+          prompt: 'Crear un e-commerce con Usuario, Producto, Categoría, Pedido y Pago'
         },
         {
-          id: 'library',
-          name: 'Library Management',
-          description: 'Book lending system with authors, books, borrowers, and loans',
-          prompt: 'Design a library management system with Book, Author, Borrower, and Loan entities'
+          id: 'biblioteca',
+          name: 'Biblioteca',
+          description: 'Sistema de préstamos con libros, autores y prestamistas',
+          prompt: 'Modelar una biblioteca con Libro, Autor, Prestamista y Préstamo'
         },
         {
-          id: 'blog',
-          name: 'Blog Platform',
-          description: 'Content management system with users, posts, comments, and categories',
-          prompt: 'Create a blog platform with User, Post, Comment, and Category entities'
-        },
-        {
-          id: 'restaurant',
-          name: 'Restaurant Ordering',
-          description: 'Food ordering system with customers, menu items, and orders',
-          prompt: 'Build a restaurant ordering system with Customer, MenuItem, Order, and OrderItem entities'
+          id: 'restaurante',
+          name: 'Restaurante',
+          description: 'Sistema de pedidos con clientes, menú y órdenes',
+          prompt: 'Crear un restaurante con Cliente, Plato, Pedido y Mesa'
         }
       ]
     };

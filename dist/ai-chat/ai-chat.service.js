@@ -25,35 +25,37 @@ let AiChatService = class AiChatService {
             if (!geminiApiKey) {
                 throw new Error('Gemini API key not configured');
             }
-            const systemPrompt = `You are an expert UML diagram generator. Generate a JSON structure for a UML class diagram based on the user's request.
+            const systemPrompt = `Eres un experto arquitecto de software especializado en diseño de sistemas y diagramas UML. Tu tarea es analizar la solicitud del usuario y generar un diagrama de clases UML completo y profesional.
 
-IMPORTANT: Return ONLY valid JSON without any markdown formatting, code blocks, or additional text.
+ANALIZA el dominio del negocio mencionado (farmacia, ferretería, restaurante, hospital, etc.) y crea las clases necesarias con sus atributos, métodos y relaciones apropiadas.
 
-The JSON should follow this exact structure:
+IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
+
+El JSON debe seguir exactamente esta estructura:
 {
-  "name": "System Name",
+  "name": "Nombre del Sistema",
   "classes": [
     {
-      "id": "unique_class_id",
-      "name": "ClassName",
+      "id": "cls_nombreclase",
+      "name": "NombreClase",
       "position": { "x": 100, "y": 100 },
       "attributes": [
         {
-          "id": "unique_attr_id",
-          "name": "attributeName",
+          "id": "attr_1",
+          "name": "nombreAtributo",
           "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
-          "stereotype": "id" (only for primary keys),
-          "nullable": true|false,
-          "unique": true|false
+          "stereotype": "id",
+          "nullable": false,
+          "unique": true
         }
       ],
       "methods": [
         {
-          "id": "unique_method_id",
-          "name": "methodName",
-          "returnType": "void|String|Boolean|etc",
+          "id": "method_1",
+          "name": "nombreMetodo",
+          "returnType": "void|String|Boolean|BigDecimal|etc",
           "parameters": [],
-          "visibility": "public|private|protected"
+          "visibility": "public"
         }
       ],
       "stereotypes": ["entity"]
@@ -61,23 +63,33 @@ The JSON should follow this exact structure:
   ],
   "relations": [
     {
-      "id": "unique_relation_id",
-      "sourceClassId": "source_class_id",
-      "targetClassId": "target_class_id",
+      "id": "rel_1",
+      "sourceClassId": "cls_clase1",
+      "targetClassId": "cls_clase2",
       "type": "OneToOne|OneToMany|ManyToOne|ManyToMany",
-      "name": "relationName"
+      "name": "nombreRelacion"
     }
   ]
 }
 
-Rules:
-- Always include an "id" attribute with type "Long", stereotype "id", nullable: false, unique: true for each class
-- Use appropriate Java/JPA types: String, Long, Integer, BigDecimal, LocalDate, LocalDateTime, Boolean
-- Position classes in a grid layout (increment x by 300, y by 250 for each class)
-- Create meaningful relationships between classes
-- Include relevant methods for business logic
+REGLAS IMPORTANTES:
+1. Analiza el contexto del negocio y crea entre 3-6 clases relevantes
+2. SIEMPRE incluir atributo "id" como primer atributo de cada clase con: type: "Long", stereotype: "id", nullable: false, unique: true
+3. Usa nombres descriptivos en español si el usuario habla español
+4. Tipos de datos apropiados: String, Long, Integer, BigDecimal (para precios/dinero), LocalDate, LocalDateTime, Boolean
+5. Posiciona clases en cuadrícula: incrementa x por 300, y por 250
+6. Crea relaciones lógicas entre clases (OneToMany, ManyToOne, etc.)
+7. Agrega métodos de negocio relevantes (calcular, validar, actualizar, etc.)
+8. Para cada dominio considera:
+   - FARMACIA: Medicamento, Cliente, Venta, Proveedor, Receta
+   - FERRETERÍA: Producto, Cliente, Venta, Proveedor, Categoría
+   - RESTAURANTE: Plato, Pedido, Cliente, Mesa, Empleado
+   - HOSPITAL: Paciente, Doctor, Cita, Tratamiento, Habitación
+   - ESCUELA: Estudiante, Profesor, Curso, Materia, Calificación
 
-User request: ${prompt}`;
+Solicitud del usuario: ${prompt}
+
+Genera un modelo UML completo y profesional basado en esta solicitud.`;
             const response = await axios_1.default.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
                 contents: [
                     {
@@ -98,6 +110,7 @@ User request: ${prompt}`;
                 throw new Error('Invalid response from Gemini API');
             }
             const generatedText = response.data.candidates[0].content.parts[0].text;
+            console.log('📝 Respuesta de Gemini:', generatedText.substring(0, 200));
             let cleanedResponse = generatedText.trim();
             if (cleanedResponse.startsWith('```json')) {
                 cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
@@ -105,12 +118,19 @@ User request: ${prompt}`;
             else if (cleanedResponse.startsWith('```')) {
                 cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
             }
+            const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                cleanedResponse = jsonMatch[0];
+            }
             let umlModel;
             try {
                 umlModel = JSON.parse(cleanedResponse);
+                console.log('✅ JSON parseado exitosamente. Clases:', umlModel.classes?.length);
             }
             catch (parseError) {
-                console.error('Failed to parse Gemini response:', cleanedResponse);
+                console.error('❌ Error parseando JSON de Gemini:', parseError.message);
+                console.error('Respuesta limpia:', cleanedResponse.substring(0, 300));
+                console.log('🔄 Usando modelo de fallback para:', prompt);
                 umlModel = this.generateFallbackModel(prompt);
             }
             umlModel = this.validateAndFixModel(umlModel);
@@ -419,6 +439,199 @@ User request: ${prompt}`;
             ],
         };
     }
+    generateHardwareStoreModel() {
+        return {
+            name: 'Sistema de Ferretería',
+            classes: [
+                {
+                    id: 'cls_producto',
+                    name: 'Producto',
+                    position: { x: 100, y: 100 },
+                    attributes: [
+                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_2', name: 'nombre', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_3', name: 'codigo', type: 'String', nullable: false, unique: true },
+                        { id: 'attr_4', name: 'precio', type: 'BigDecimal', nullable: false, unique: false },
+                        { id: 'attr_5', name: 'stock', type: 'Integer', nullable: false, unique: false },
+                        { id: 'attr_6', name: 'unidadMedida', type: 'String', nullable: false, unique: false },
+                    ],
+                    methods: [
+                        { id: 'method_1', name: 'actualizarStock', returnType: 'void', parameters: [], visibility: 'public' },
+                        { id: 'method_2', name: 'calcularPrecioConIVA', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
+                    ],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_categoria',
+                    name: 'Categoria',
+                    position: { x: 400, y: 100 },
+                    attributes: [
+                        { id: 'attr_7', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_8', name: 'nombre', type: 'String', nullable: false, unique: true },
+                        { id: 'attr_9', name: 'descripcion', type: 'String', nullable: true, unique: false },
+                    ],
+                    methods: [],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_cliente',
+                    name: 'Cliente',
+                    position: { x: 700, y: 100 },
+                    attributes: [
+                        { id: 'attr_10', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_11', name: 'nombre', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_12', name: 'ruc', type: 'String', nullable: true, unique: true },
+                        { id: 'attr_13', name: 'telefono', type: 'String', nullable: true, unique: false },
+                        { id: 'attr_14', name: 'direccion', type: 'String', nullable: true, unique: false },
+                    ],
+                    methods: [],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_venta',
+                    name: 'Venta',
+                    position: { x: 250, y: 350 },
+                    attributes: [
+                        { id: 'attr_15', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_16', name: 'fecha', type: 'LocalDateTime', nullable: false, unique: false },
+                        { id: 'attr_17', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
+                        { id: 'attr_18', name: 'formaPago', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_19', name: 'numeroFactura', type: 'String', nullable: true, unique: true },
+                    ],
+                    methods: [
+                        { id: 'method_3', name: 'calcularTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
+                        { id: 'method_4', name: 'generarFactura', returnType: 'String', parameters: [], visibility: 'public' },
+                    ],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_proveedor',
+                    name: 'Proveedor',
+                    position: { x: 550, y: 350 },
+                    attributes: [
+                        { id: 'attr_20', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_21', name: 'razonSocial', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_22', name: 'ruc', type: 'String', nullable: false, unique: true },
+                        { id: 'attr_23', name: 'telefono', type: 'String', nullable: true, unique: false },
+                        { id: 'attr_24', name: 'email', type: 'String', nullable: true, unique: false },
+                    ],
+                    methods: [],
+                    stereotypes: ['entity'],
+                },
+            ],
+            relations: [
+                {
+                    id: 'rel_1',
+                    sourceClassId: 'cls_producto',
+                    targetClassId: 'cls_categoria',
+                    type: 'ManyToOne',
+                    name: 'categoria',
+                },
+                {
+                    id: 'rel_2',
+                    sourceClassId: 'cls_venta',
+                    targetClassId: 'cls_cliente',
+                    type: 'ManyToOne',
+                    name: 'cliente',
+                },
+                {
+                    id: 'rel_3',
+                    sourceClassId: 'cls_producto',
+                    targetClassId: 'cls_proveedor',
+                    type: 'ManyToOne',
+                    name: 'proveedor',
+                },
+            ],
+        };
+    }
+    generatePharmacyModel() {
+        return {
+            name: 'Sistema de Farmacia',
+            classes: [
+                {
+                    id: 'cls_medicamento',
+                    name: 'Medicamento',
+                    position: { x: 100, y: 100 },
+                    attributes: [
+                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_2', name: 'nombre', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_3', name: 'principioActivo', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_4', name: 'precio', type: 'BigDecimal', nullable: false, unique: false },
+                        { id: 'attr_5', name: 'stock', type: 'Integer', nullable: false, unique: false },
+                        { id: 'attr_6', name: 'requiereReceta', type: 'Boolean', nullable: false, unique: false },
+                        { id: 'attr_7', name: 'fechaVencimiento', type: 'LocalDate', nullable: false, unique: false },
+                    ],
+                    methods: [
+                        { id: 'method_1', name: 'actualizarStock', returnType: 'void', parameters: [], visibility: 'public' },
+                        { id: 'method_2', name: 'verificarVencimiento', returnType: 'Boolean', parameters: [], visibility: 'public' },
+                    ],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_cliente',
+                    name: 'Cliente',
+                    position: { x: 400, y: 100 },
+                    attributes: [
+                        { id: 'attr_8', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_9', name: 'nombre', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_10', name: 'dni', type: 'String', nullable: false, unique: true },
+                        { id: 'attr_11', name: 'telefono', type: 'String', nullable: true, unique: false },
+                        { id: 'attr_12', name: 'email', type: 'String', nullable: true, unique: false },
+                        { id: 'attr_13', name: 'direccion', type: 'String', nullable: true, unique: false },
+                    ],
+                    methods: [],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_venta',
+                    name: 'Venta',
+                    position: { x: 250, y: 350 },
+                    attributes: [
+                        { id: 'attr_14', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_15', name: 'fecha', type: 'LocalDateTime', nullable: false, unique: false },
+                        { id: 'attr_16', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
+                        { id: 'attr_17', name: 'formaPago', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_18', name: 'tieneReceta', type: 'Boolean', nullable: false, unique: false },
+                    ],
+                    methods: [
+                        { id: 'method_3', name: 'calcularTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
+                        { id: 'method_4', name: 'validarReceta', returnType: 'Boolean', parameters: [], visibility: 'public' },
+                    ],
+                    stereotypes: ['entity'],
+                },
+                {
+                    id: 'cls_proveedor',
+                    name: 'Proveedor',
+                    position: { x: 550, y: 350 },
+                    attributes: [
+                        { id: 'attr_19', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
+                        { id: 'attr_20', name: 'razonSocial', type: 'String', nullable: false, unique: false },
+                        { id: 'attr_21', name: 'ruc', type: 'String', nullable: false, unique: true },
+                        { id: 'attr_22', name: 'telefono', type: 'String', nullable: true, unique: false },
+                        { id: 'attr_23', name: 'email', type: 'String', nullable: true, unique: false },
+                    ],
+                    methods: [],
+                    stereotypes: ['entity'],
+                },
+            ],
+            relations: [
+                {
+                    id: 'rel_1',
+                    sourceClassId: 'cls_venta',
+                    targetClassId: 'cls_cliente',
+                    type: 'ManyToOne',
+                    name: 'cliente',
+                },
+                {
+                    id: 'rel_2',
+                    sourceClassId: 'cls_medicamento',
+                    targetClassId: 'cls_proveedor',
+                    type: 'ManyToOne',
+                    name: 'proveedor',
+                },
+            ],
+        };
+    }
     generateGenericModel(prompt) {
         return {
             name: 'Generated Model',
@@ -479,16 +692,32 @@ User request: ${prompt}`;
     }
     generateFallbackModel(prompt) {
         const lowerPrompt = prompt.toLowerCase();
-        if (lowerPrompt.includes('ecommerce') || lowerPrompt.includes('e-commerce') || lowerPrompt.includes('shop')) {
+        if (lowerPrompt.includes('ferreteria') || lowerPrompt.includes('ferretería') ||
+            lowerPrompt.includes('hardware') || lowerPrompt.includes('herramienta') ||
+            lowerPrompt.includes('construccion') || lowerPrompt.includes('construcción')) {
+            return this.generateHardwareStoreModel();
+        }
+        else if (lowerPrompt.includes('farmacia') || lowerPrompt.includes('pharmacy') ||
+            lowerPrompt.includes('medicamento') || lowerPrompt.includes('medicine') ||
+            lowerPrompt.includes('droga') || lowerPrompt.includes('drug')) {
+            return this.generatePharmacyModel();
+        }
+        else if (lowerPrompt.includes('ecommerce') || lowerPrompt.includes('e-commerce') ||
+            lowerPrompt.includes('shop') || lowerPrompt.includes('tienda') ||
+            (lowerPrompt.includes('product') && lowerPrompt.includes('order')) ||
+            (lowerPrompt.includes('producto') && lowerPrompt.includes('pedido'))) {
             return this.generateEcommerceModel();
         }
-        else if (lowerPrompt.includes('library') || lowerPrompt.includes('book')) {
+        else if (lowerPrompt.includes('library') || lowerPrompt.includes('book') ||
+            lowerPrompt.includes('biblioteca') || lowerPrompt.includes('libro')) {
             return this.generateLibraryModel();
         }
-        else if (lowerPrompt.includes('blog') || lowerPrompt.includes('post')) {
+        else if (lowerPrompt.includes('blog') || lowerPrompt.includes('post') ||
+            lowerPrompt.includes('articulo') || lowerPrompt.includes('comentario')) {
             return this.generateBlogModel();
         }
-        else if (lowerPrompt.includes('restaurant') || lowerPrompt.includes('order')) {
+        else if (lowerPrompt.includes('restaurant') || lowerPrompt.includes('restaurante') ||
+            (lowerPrompt.includes('menu') && lowerPrompt.includes('order'))) {
             return this.generateRestaurantModel();
         }
         else {
@@ -501,13 +730,13 @@ User request: ${prompt}`;
             if (!geminiApiKey) {
                 throw new Error('Gemini API key not configured');
             }
-            const systemPrompt = `You are an expert UML consultant and software architect. Help the user with their UML diagram questions and provide practical advice.
+            const systemPrompt = `Eres un consultor experto en UML y arquitecto de software. Ayuda al usuario con sus preguntas sobre diagramas UML y proporciona consejos prácticos. Responde siempre en español.
 
-Current context: ${context ? JSON.stringify(context) : 'No current diagram context'}
+Contexto actual: ${context ? JSON.stringify(context) : 'Sin contexto de diagrama actual'}
 
-User message: ${message}
+Mensaje del usuario: ${message}
 
-Provide a helpful response about UML design, best practices, or suggestions. Be concise but informative.`;
+Proporciona una respuesta útil sobre diseño UML, mejores prácticas o sugerencias. Sé conciso pero informativo.`;
             const response = await axios_1.default.post('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
                 contents: [
                     {
@@ -531,22 +760,22 @@ Provide a helpful response about UML design, best practices, or suggestions. Be 
             return {
                 response: aiResponse,
                 suggestions: [
-                    'Generate a UML diagram for this concept',
-                    'Show me an e-commerce example',
-                    'Create a user management system',
-                    'Design a blog platform'
+                    'Crear un sistema de farmacia',
+                    'Diseñar un e-commerce con productos y pedidos',
+                    'Modelar un sistema de biblioteca',
+                    'Generar un blog con posts y comentarios'
                 ],
             };
         }
         catch (error) {
             console.error('Error in AI chat:', error);
             return {
-                response: `I understand you want to know about: "${message}". Let me help you create a UML diagram for that. You can ask me to generate specific diagrams or explain UML concepts.`,
+                response: `Entiendo que quieres saber sobre: "${message}". Déjame ayudarte a crear un diagrama UML para eso. Puedes pedirme que genere diagramas específicos o explicar conceptos UML.`,
                 suggestions: [
-                    'Create a User class with basic attributes',
-                    'Add relationships between entities',
-                    'Generate a complete e-commerce model',
-                    'Show me UML best practices'
+                    'Crear un sistema de farmacia',
+                    'Diseñar un e-commerce',
+                    'Modelar una biblioteca',
+                    'Generar un sistema de blog'
                 ],
             };
         }
