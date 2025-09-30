@@ -1,89 +1,375 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectType } from '@prisma/client';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as archiver from 'archiver';
 import { createWriteStream } from 'fs';
+import * as ejs from 'ejs';
 
 @Injectable()
 export class CodeGenerationService {
   constructor(private prisma: PrismaService) {}
 
   async generateSpringBootProject(diagramId: string, userId: string) {
-    // Get diagram data
-    const diagram = await this.prisma.diagram.findUnique({
-      where: { id: diagramId },
-      include: {
-        classes: {
-          include: {
-            attributes: true,
-            methods: true,
-          },
-        },
-        relations: true,
-      },
-    });
+    console.log(`🚀 Generating Spring Boot project for diagram: ${diagramId}`);
+
+    // Get diagram data from JSON field (NOT from relational tables)
+    const diagram = await this.prisma.retryQuery(() =>
+      this.prisma.diagram.findUnique({
+        where: { id: diagramId },
+      })
+    );
 
     if (!diagram) {
-      throw new Error('Diagram not found');
+      throw new BadRequestException('Diagram not found');
     }
 
-    // Generate project structure
+    // Extract classes and relations from the JSON data field
+    const diagramData = diagram.data as any;
+    const classes = diagramData.classes || [];
+    const relations = diagramData.relations || [];
+
+    console.log(`📊 Diagram found: ${diagram.name}`);
+    console.log(`📦 Classes count: ${classes.length}`);
+    console.log(`🔗 Relations count: ${relations.length}`);
+
+    // Validate and normalize diagram before generation
+    this.validateAndNormalizeDiagram(classes);
+
+    // Prepare project metadata
     const projectName = diagram.name.toLowerCase().replace(/\s+/g, '-');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const projectPath = `./generated-projects/${projectName}-${timestamp}`;
+    const basePackage = `com.example.${projectName.replace(/-/g, '')}`;
+    const dbName = projectName.replace(/-/g, '_');
+
+    console.log(`📁 Project path: ${projectPath}`);
+    console.log(`📦 Base package: ${basePackage}`);
 
     try {
+      // Create project structure
       await this.createProjectStructure(projectPath, projectName);
-      await this.generateMainApplication(projectPath, projectName);
-      await this.generateEntities(projectPath, diagram.classes);
-      await this.generateRepositories(projectPath, diagram.classes);
-      await this.generateServices(projectPath, diagram.classes);
-      await this.generateControllers(projectPath, diagram.classes);
-      await this.generateApplicationProperties(projectPath);
-      await this.generatePomXml(projectPath, projectName);
+      console.log('✅ Project structure created');
+
+      // Transform diagram data to template-friendly format
+      const transformedClasses = this.transformClasses(classes, relations);
+      console.log(`✅ Transformed ${transformedClasses.length} classes`);
+
+      // Generate files using EJS templates
+      await this.generateFromTemplates(projectPath, {
+        projectName,
+        basePackage,
+        dbName,
+        classes: transformedClasses,
+      });
+      console.log('✅ Files generated from templates');
 
       // Create ZIP file
       const zipPath = `${projectPath}.zip`;
       await this.createZipFile(projectPath, zipPath);
+      console.log(`✅ ZIP file created: ${zipPath}`);
 
-      // Save generation record
-      const generatedCode = await this.prisma.generatedCode.create({
-        data: {
-          projectType: ProjectType.SPRING_BOOT,
-          zipPath: zipPath,
-          diagramId,
-          generatedBy: userId,
-        },
-      });
+      // Save generation record (with retry logic)
+      const generatedCode = await this.prisma.retryQuery(() =>
+        this.prisma.generatedCode.create({
+          data: {
+            projectType: ProjectType.SPRING_BOOT,
+            zipPath: zipPath,
+            diagramId,
+            generatedBy: userId,
+          },
+        })
+      );
 
       return {
         success: true,
         projectPath,
         zipPath,
         generatedCodeId: generatedCode.id,
-        message: 'Spring Boot project generated successfully',
+        message: 'Spring Boot project generated successfully with tests and Docker configuration',
       };
     } catch (error) {
-      console.error('Error generating project:', error);
-      throw new Error('Failed to generate Spring Boot project');
+      console.error('❌ Error generating project:', error);
+      console.error('Stack trace:', error.stack);
+      throw new Error(`Failed to generate Spring Boot project: ${error.message}`);
     }
   }
 
+  private validateAndNormalizeDiagram(classes: any[]) {
+    if (!classes || classes.length === 0) {
+      throw new BadRequestException('Diagram must contain at least one class');
+    }
+
+    console.log('🔍 Validating and normalizing diagram...');
+
+    // Check each class and add ID if missing
+    for (const umlClass of classes) {
+      // Initialize attributes array if it doesn't exist
+      if (!umlClass.attributes) {
+        umlClass.attributes = [];
+      }
+
+      console.log(`  Checking class: ${umlClass.name}, attributes: ${umlClass.attributes.length}`);
+
+      const hasId = umlClass.attributes.some((attr: any) => attr.stereotype === 'id');
+
+      if (!hasId) {
+        console.log(`  ⚠️  No ID found for ${umlClass.name}, adding default 'id' attribute`);
+
+        // Auto-add ID attribute if missing
+        umlClass.attributes.unshift({
+          id: `${umlClass.id}_id_attr`,
+          name: 'id',
+          type: 'Long',
+          stereotype: 'id',
+          nullable: false,
+          unique: true,
+        });
+      }
+    }
+
+    console.log('✅ Diagram validated and normalized');
+  }
+
+  private transformClasses(umlClasses: any[], relations: any[]) {
+    return umlClasses.map((umlClass) => {
+      const className = umlClass.name;
+      const varName = className.charAt(0).toLowerCase() + className.slice(1);
+      const pluralName = this.pluralize(className.toLowerCase());
+      const tableName = className.toLowerCase();
+
+      // Get ID attribute
+      const idAttribute = umlClass.attributes.find((attr: any) => attr.stereotype === 'id');
+      const idType = idAttribute ? this.mapToJavaType(idAttribute.type) : 'Long';
+
+      // Transform attributes
+      const attributes = this.transformAttributes(umlClass.attributes, umlClass.id, className, relations, umlClasses);
+
+      // Get unique fields for Repository
+      const uniqueFields = attributes
+        .filter((attr) => attr.unique && !attr.isId)
+        .map((attr) => ({
+          name: attr.name,
+          type: attr.type,
+        }));
+
+      // Generate sample data for README
+      const sampleData = attributes
+        .filter((attr) => !attr.isId && !attr.isRelation)
+        .slice(0, 3)
+        .map((attr) => ({
+          key: attr.name,
+          value: attr.sampleValue,
+        }));
+
+      return {
+        className,
+        varName,
+        pluralName,
+        tableName,
+        idType,
+        attributes,
+        uniqueFields,
+        sampleData,
+      };
+    });
+  }
+
+  private transformAttributes(attributes: any[], classId: string, className: string, relations: any[], allClasses: any[]) {
+    const result = [];
+
+    // First, add scalar attributes
+    for (const attr of attributes) {
+      const isId = attr.stereotype === 'id';
+      const javaType = this.mapToJavaType(attr.type);
+
+      result.push({
+        name: attr.name,
+        type: javaType,
+        columnName: attr.name.toLowerCase(),
+        nullable: attr.nullable !== false,
+        unique: attr.unique === true,
+        isId,
+        isRelation: false,
+        length: attr.type === 'String' ? 255 : null,
+        sampleValue: this.getSampleValue(javaType),
+      });
+    }
+
+    // Then, add relations
+    const classRelations = relations.filter(
+      (r) => r.sourceClassId === classId || r.targetClassId === classId
+    );
+
+    for (const relation of classRelations) {
+      const isSource = relation.sourceClassId === classId;
+      const targetClassId = isSource ? relation.targetClassId : relation.sourceClassId;
+
+      // Find the actual target class name
+      const targetClass = allClasses.find(c => c.id === targetClassId);
+      if (!targetClass) {
+        console.warn(`⚠️  Target class not found for relation: ${relation.id}`);
+        continue;
+      }
+
+      const targetClassName = targetClass.name;
+      const relationType = this.mapRelationType(relation.type, isSource);
+      const relationName = relation.name || targetClassName.toLowerCase();
+
+      if (relationType === 'MANY_TO_ONE') {
+        result.push({
+          name: relationName,
+          type: targetClassName,
+          columnName: `${relationName}_id`,
+          nullable: true,
+          unique: false,
+          isId: false,
+          isRelation: true,
+          relationType: 'MANY_TO_ONE',
+        });
+      } else if (relationType === 'ONE_TO_MANY') {
+        result.push({
+          name: relationName || `${targetClassName.toLowerCase()}s`,
+          type: `List<${targetClassName}>`,
+          nullable: true,
+          unique: false,
+          isId: false,
+          isRelation: true,
+          relationType: 'ONE_TO_MANY',
+          mappedBy: className.toLowerCase(),
+        });
+      } else if (relationType === 'MANY_TO_MANY') {
+        result.push({
+          name: relationName || `${targetClassName.toLowerCase()}s`,
+          type: `Set<${targetClassName}>`,
+          nullable: true,
+          unique: false,
+          isId: false,
+          isRelation: true,
+          relationType: 'MANY_TO_MANY',
+          joinTable: `${className.toLowerCase()}_${targetClassName.toLowerCase()}`,
+          joinColumn: `${className.toLowerCase()}_id`,
+          inverseJoinColumn: `${targetClassName.toLowerCase()}_id`,
+        });
+      } else if (relationType === 'ONE_TO_ONE') {
+        result.push({
+          name: relationName,
+          type: targetClassName,
+          columnName: `${relationName}_id`,
+          nullable: true,
+          unique: false,
+          isId: false,
+          isRelation: true,
+          relationType: 'ONE_TO_ONE',
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private mapRelationType(relationType: string, isSource: boolean): string {
+    // Normalize the relation type (handle different formats)
+    const normalizedType = relationType.toUpperCase().replace(/-/g, '_');
+
+    // Map relation types to JPA annotations
+    switch (normalizedType) {
+      case 'MANYTOMANY':
+      case 'MANY_TO_MANY':
+        return 'MANY_TO_MANY';
+
+      case 'ONETOMANY':
+      case 'ONE_TO_MANY':
+        // If this class is the source of OneToMany, it has the collection
+        return isSource ? 'ONE_TO_MANY' : 'MANY_TO_ONE';
+
+      case 'MANYTOONE':
+      case 'MANY_TO_ONE':
+        // If this class is the source of ManyToOne, it has the single reference
+        return isSource ? 'MANY_TO_ONE' : 'ONE_TO_MANY';
+
+      case 'ONETOONE':
+      case 'ONE_TO_ONE':
+        return 'ONE_TO_ONE';
+
+      case 'ASSOCIATION':
+        // Generic association defaults to ManyToOne from source side
+        return isSource ? 'MANY_TO_ONE' : 'ONE_TO_MANY';
+
+      case 'COMPOSITION':
+      case 'AGGREGATION':
+        return isSource ? 'ONE_TO_MANY' : 'MANY_TO_ONE';
+
+      case 'INHERITANCE':
+        return 'INHERITANCE';
+
+      default:
+        console.warn(`⚠️  Unknown relation type: ${relationType}, defaulting to MANY_TO_ONE`);
+        return 'MANY_TO_ONE';
+    }
+  }
+
+  private mapToJavaType(umlType: string): string {
+    const typeMap: { [key: string]: string } = {
+      String: 'String',
+      Integer: 'Integer',
+      Long: 'Long',
+      BigDecimal: 'BigDecimal',
+      Boolean: 'Boolean',
+      LocalDate: 'LocalDate',
+      LocalDateTime: 'LocalDateTime',
+      Double: 'Double',
+      Float: 'Float',
+    };
+
+    return typeMap[umlType] || 'String';
+  }
+
+  private getSampleValue(javaType: string): string {
+    const sampleMap: { [key: string]: string } = {
+      String: '"Sample String"',
+      Integer: '123',
+      Long: '123L',
+      BigDecimal: 'new BigDecimal("99.99")',
+      Boolean: 'true',
+      LocalDate: 'LocalDate.now()',
+      LocalDateTime: 'LocalDateTime.now()',
+      Double: '99.99',
+      Float: '99.99f',
+    };
+
+    return sampleMap[javaType] || '""';
+  }
+
+  private pluralize(word: string): string {
+    if (word.endsWith('y')) {
+      return word.slice(0, -1) + 'ies';
+    } else if (word.endsWith('s')) {
+      return word + 'es';
+    } else {
+      return word + 's';
+    }
+  }
+
+  private capitalize(str: string): string {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
   private async createProjectStructure(projectPath: string, projectName: string) {
-    const packagePath = `src/main/java/com/example/${projectName.replace(/-/g, '')}`;
+    const basePackage = `src/main/java/com/example/${projectName.replace(/-/g, '')}`;
     const resourcesPath = 'src/main/resources';
     const testPath = `src/test/java/com/example/${projectName.replace(/-/g, '')}`;
 
     const directories = [
-      `${projectPath}/${packagePath}/entity`,
-      `${projectPath}/${packagePath}/repository`,
-      `${projectPath}/${packagePath}/service`,
-      `${projectPath}/${packagePath}/controller`,
-      `${projectPath}/${packagePath}/dto`,
+      `${projectPath}/${basePackage}/entity`,
+      `${projectPath}/${basePackage}/repository`,
+      `${projectPath}/${basePackage}/service`,
+      `${projectPath}/${basePackage}/controller`,
+      `${projectPath}/${basePackage}/dto`,
+      `${projectPath}/${basePackage}/exception`,
       `${projectPath}/${resourcesPath}`,
-      `${projectPath}/${testPath}`,
+      `${projectPath}/${testPath}/controller`,
     ];
 
     for (const dir of directories) {
@@ -91,349 +377,124 @@ export class CodeGenerationService {
     }
   }
 
-  private async generateEntities(projectPath: string, classes: any[]) {
-    for (const umlClass of classes) {
-      const entityContent = this.generateEntityClass(umlClass);
-      const fileName = `${umlClass.name}.java`;
-      const packagePath = `src/main/java/com/example/entity`;
+  private async generateFromTemplates(projectPath: string, data: any) {
+    const templatesDir = path.join(__dirname, '../../templates/springboot');
+    const { projectName, basePackage, dbName, classes } = data;
+    const className = this.capitalize(projectName.replace(/-/g, ''));
 
-      await fs.writeFile(
-        path.join(projectPath, packagePath, fileName),
-        entityContent,
-      );
+    // Generate pom.xml
+    await this.renderTemplate(
+      path.join(templatesDir, 'pom.xml.ejs'),
+      path.join(projectPath, 'pom.xml'),
+      { projectName }
+    );
+
+    // Generate Application.java
+    const appPath = `src/main/java/${basePackage.replace(/\./g, '/')}/`;
+    await this.renderTemplate(
+      path.join(templatesDir, 'Application.java.ejs'),
+      path.join(projectPath, appPath, `${className}Application.java`),
+      { basePackage, className }
+    );
+
+    // Generate application.properties
+    await this.renderTemplate(
+      path.join(templatesDir, 'application.properties.ejs'),
+      path.join(projectPath, 'src/main/resources/application.properties'),
+      { projectName, dbName }
+    );
+
+    // Generate docker-compose.yml
+    await this.renderTemplate(
+      path.join(templatesDir, 'docker-compose.yml.ejs'),
+      path.join(projectPath, 'docker-compose.yml'),
+      { projectName, dbName }
+    );
+
+    // Generate README.md
+    await this.renderTemplate(
+      path.join(templatesDir, 'README.md.ejs'),
+      path.join(projectPath, 'README.md'),
+      { projectName, basePackage, dbName, classes }
+    );
+
+    // Generate exception handlers
+    const exceptionPath = `src/main/java/${basePackage.replace(/\./g, '/')}/exception/`;
+    await this.renderTemplate(
+      path.join(templatesDir, 'GlobalExceptionHandler.java.ejs'),
+      path.join(projectPath, exceptionPath, 'GlobalExceptionHandler.java'),
+      { basePackage }
+    );
+    await this.renderTemplate(
+      path.join(templatesDir, 'ResourceNotFoundException.java.ejs'),
+      path.join(projectPath, exceptionPath, 'ResourceNotFoundException.java'),
+      { basePackage }
+    );
+
+    // Generate for each class
+    for (const cls of classes) {
+      await this.generateClassFiles(projectPath, basePackage, cls);
     }
   }
 
-  private generateEntityClass(umlClass: any): string {
-    const className = umlClass.name;
-    const attributes = umlClass.attributes || [];
-    const idAttribute = attributes.find(attr => attr.stereotype === 'id');
+  private async generateClassFiles(projectPath: string, basePackage: string, classData: any) {
+    const templatesDir = path.join(__dirname, '../../templates/springboot');
+    const basePath = basePackage.replace(/\./g, '/');
 
-    return `package com.example.entity;
-
-import jakarta.persistence.*;
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-
-@Entity
-@Table(name = "${className.toLowerCase()}")
-public class ${className} {
-
-${attributes.map(attr => this.generateAttribute(attr)).join('\n')}
-
-    // Constructors
-    public ${className}() {}
-
-${attributes.map(attr => this.generateGetter(attr)).join('\n')}
-
-${attributes.map(attr => this.generateSetter(attr)).join('\n')}
-${idAttribute ? `
-    public void setId(${this.mapToJavaType(idAttribute.type)} id) {
-        this.${idAttribute.name} = id;
-    }` : ''}
-}`;
-  }
-
-  private generateAttribute(attribute: any): string {
-    const annotations = [];
-
-    if (attribute.stereotype === 'id') {
-      annotations.push('    @Id');
-      annotations.push('    @GeneratedValue(strategy = GenerationType.IDENTITY)');
-    }
-
-    let columnAnnotation = `    @Column(name = "${attribute.name.toLowerCase()}"`;
-    if (!attribute.nullable) {
-      columnAnnotation += ', nullable = false';
-    }
-    if (attribute.unique) {
-      columnAnnotation += ', unique = true';
-    }
-    columnAnnotation += ')';
-    annotations.push(columnAnnotation);
-
-    const javaType = this.mapToJavaType(attribute.type);
-
-    return `${annotations.join('\n')}
-    private ${javaType} ${attribute.name};`;
-  }
-
-  private generateGetter(attribute: any): string {
-    const javaType = this.mapToJavaType(attribute.type);
-    const methodName = `get${this.capitalize(attribute.name)}`;
-
-    return `    public ${javaType} ${methodName}() {
-        return this.${attribute.name};
-    }`;
-  }
-
-  private generateSetter(attribute: any): string {
-    const javaType = this.mapToJavaType(attribute.type);
-    const methodName = `set${this.capitalize(attribute.name)}`;
-
-    return `    public void ${methodName}(${javaType} ${attribute.name}) {
-        this.${attribute.name} = ${attribute.name};
-    }`;
-  }
-
-  private mapToJavaType(umlType: string): string {
-    const typeMap: { [key: string]: string } = {
-      'String': 'String',
-      'Integer': 'Integer',
-      'Long': 'Long',
-      'BigDecimal': 'BigDecimal',
-      'Boolean': 'Boolean',
-      'LocalDate': 'LocalDate',
-      'LocalDateTime': 'LocalDateTime',
+    const templateData = {
+      basePackage,
+      ...classData,
+      capitalize: this.capitalize,
+      idType: classData.idType || 'Long',
     };
 
-    return typeMap[umlType] || 'String';
-  }
+    // Generate Entity
+    await this.renderTemplate(
+      path.join(templatesDir, 'Entity.java.ejs'),
+      path.join(projectPath, `src/main/java/${basePath}/entity/${classData.className}.java`),
+      templateData
+    );
 
-  private capitalize(str: string): string {
-    return str.charAt(0).toUpperCase() + str.slice(1);
-  }
+    // Generate DTO
+    await this.renderTemplate(
+      path.join(templatesDir, 'DTO.java.ejs'),
+      path.join(projectPath, `src/main/java/${basePath}/dto/${classData.className}DTO.java`),
+      templateData
+    );
 
-  private async generateRepositories(projectPath: string, classes: any[]) {
-    for (const umlClass of classes) {
-      const repositoryContent = `package com.example.repository;
+    // Generate Repository
+    await this.renderTemplate(
+      path.join(templatesDir, 'Repository.java.ejs'),
+      path.join(projectPath, `src/main/java/${basePath}/repository/${classData.className}Repository.java`),
+      templateData
+    );
 
-import com.example.entity.${umlClass.name};
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
+    // Generate Service
+    await this.renderTemplate(
+      path.join(templatesDir, 'Service.java.ejs'),
+      path.join(projectPath, `src/main/java/${basePath}/service/${classData.className}Service.java`),
+      templateData
+    );
 
-@Repository
-public interface ${umlClass.name}Repository extends JpaRepository<${umlClass.name}, Long> {
-}`;
+    // Generate Controller
+    await this.renderTemplate(
+      path.join(templatesDir, 'Controller.java.ejs'),
+      path.join(projectPath, `src/main/java/${basePath}/controller/${classData.className}Controller.java`),
+      templateData
+    );
 
-      const fileName = `${umlClass.name}Repository.java`;
-      const packagePath = `src/main/java/com/example/repository`;
-
-      await fs.writeFile(
-        path.join(projectPath, packagePath, fileName),
-        repositoryContent,
-      );
-    }
-  }
-
-  private async generateServices(projectPath: string, classes: any[]) {
-    for (const umlClass of classes) {
-      const serviceContent = `package com.example.service;
-
-import com.example.entity.${umlClass.name};
-import com.example.repository.${umlClass.name}Repository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import java.util.List;
-import java.util.Optional;
-
-@Service
-public class ${umlClass.name}Service {
-
-    @Autowired
-    private ${umlClass.name}Repository ${umlClass.name.toLowerCase()}Repository;
-
-    public List<${umlClass.name}> findAll() {
-        return ${umlClass.name.toLowerCase()}Repository.findAll();
-    }
-
-    public Optional<${umlClass.name}> findById(Long id) {
-        return ${umlClass.name.toLowerCase()}Repository.findById(id);
-    }
-
-    public ${umlClass.name} save(${umlClass.name} ${umlClass.name.toLowerCase()}) {
-        return ${umlClass.name.toLowerCase()}Repository.save(${umlClass.name.toLowerCase()});
-    }
-
-    public void deleteById(Long id) {
-        ${umlClass.name.toLowerCase()}Repository.deleteById(id);
-    }
-}`;
-
-      const fileName = `${umlClass.name}Service.java`;
-      const packagePath = `src/main/java/com/example/service`;
-
-      await fs.writeFile(
-        path.join(projectPath, packagePath, fileName),
-        serviceContent,
-      );
-    }
-  }
-
-  private async generateControllers(projectPath: string, classes: any[]) {
-    for (const umlClass of classes) {
-      const controllerContent = `package com.example.controller;
-
-import com.example.entity.${umlClass.name};
-import com.example.service.${umlClass.name}Service;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import java.util.List;
-import java.util.Optional;
-
-@RestController
-@RequestMapping("/api/${umlClass.name.toLowerCase()}s")
-@CrossOrigin(origins = "*")
-public class ${umlClass.name}Controller {
-
-    @Autowired
-    private ${umlClass.name}Service ${umlClass.name.toLowerCase()}Service;
-
-    @GetMapping
-    public List<${umlClass.name}> getAll() {
-        return ${umlClass.name.toLowerCase()}Service.findAll();
-    }
-
-    @GetMapping("/{id}")
-    public ResponseEntity<${umlClass.name}> getById(@PathVariable Long id) {
-        Optional<${umlClass.name}> ${umlClass.name.toLowerCase()} = ${umlClass.name.toLowerCase()}Service.findById(id);
-        return ${umlClass.name.toLowerCase()}.map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
-    }
-
-    @PostMapping
-    public ${umlClass.name} create(@RequestBody ${umlClass.name} ${umlClass.name.toLowerCase()}) {
-        return ${umlClass.name.toLowerCase()}Service.save(${umlClass.name.toLowerCase()});
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<${umlClass.name}> update(@PathVariable Long id, @RequestBody ${umlClass.name} ${umlClass.name.toLowerCase()}) {
-        Optional<${umlClass.name}> existing = ${umlClass.name.toLowerCase()}Service.findById(id);
-        if (existing.isPresent()) {
-            ${umlClass.name.toLowerCase()}.setId(id);
-            return ResponseEntity.ok(${umlClass.name.toLowerCase()}Service.save(${umlClass.name.toLowerCase()}));
-        }
-        return ResponseEntity.notFound().build();
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        ${umlClass.name.toLowerCase()}Service.deleteById(id);
-        return ResponseEntity.ok().build();
-    }
-}`;
-
-      const fileName = `${umlClass.name}Controller.java`;
-      const packagePath = `src/main/java/com/example/controller`;
-
-      await fs.writeFile(
-        path.join(projectPath, packagePath, fileName),
-        controllerContent,
-      );
-    }
-  }
-
-  private async generateApplicationProperties(projectPath: string) {
-    const content = `# Database Configuration
-spring.datasource.url=jdbc:postgresql://localhost:5432/generated_project
-spring.datasource.username=postgres
-spring.datasource.password=password
-spring.datasource.driver-class-name=org.postgresql.Driver
-
-# JPA Configuration
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
-
-# Server Configuration
-server.port=8080
-
-# CORS Configuration
-spring.web.cors.allowed-origins=*
-spring.web.cors.allowed-methods=GET,POST,PUT,DELETE,OPTIONS
-spring.web.cors.allowed-headers=*`;
-
-    await fs.writeFile(
-      path.join(projectPath, 'src/main/resources/application.properties'),
-      content,
+    // Generate Test
+    await this.renderTemplate(
+      path.join(templatesDir, 'ControllerTest.java.ejs'),
+      path.join(projectPath, `src/test/java/${basePath}/controller/${classData.className}ControllerTest.java`),
+      templateData
     );
   }
 
-  private async generatePomXml(projectPath: string, projectName: string) {
-    const content = `<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.1.0</version>
-        <relativePath/>
-    </parent>
-
-    <groupId>com.example</groupId>
-    <artifactId>${projectName}</artifactId>
-    <version>1.0.0</version>
-    <name>${projectName}</name>
-    <description>Generated Spring Boot project from UML diagram</description>
-
-    <properties>
-        <java.version>17</java.version>
-    </properties>
-
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
-</project>`;
-
-    await fs.writeFile(path.join(projectPath, 'pom.xml'), content);
-  }
-
-  private async generateMainApplication(projectPath: string, projectName: string) {
-    const className = this.capitalize(projectName.replace(/-/g, ''));
-    const packageName = `com.example.${projectName.replace(/-/g, '')}`;
-
-    const content = `package ${packageName};
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-
-@SpringBootApplication
-public class ${className}Application {
-
-    public static void main(String[] args) {
-        SpringApplication.run(${className}Application.class, args);
-    }
-}`;
-
-    const packagePath = `src/main/java/com/example/${projectName.replace(/-/g, '')}`;
-    await fs.writeFile(
-      path.join(projectPath, packagePath, `${className}Application.java`),
-      content,
-    );
+  private async renderTemplate(templatePath: string, outputPath: string, data: any) {
+    const template = await fs.readFile(templatePath, 'utf-8');
+    const rendered = ejs.render(template, data);
+    await fs.writeFile(outputPath, rendered);
   }
 
   private async createZipFile(projectPath: string, zipPath: string): Promise<void> {
