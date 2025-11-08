@@ -61,28 +61,43 @@ export class DiagramService {
   }
 
   async updateDiagram(diagramId: string, userId: string, data: any) {
-    // Verify access
-    await this.getDiagramById(diagramId, userId);
-
-    const updatedDiagram = await this.prisma.diagram.update({
-      where: { id: diagramId },
-      data: {
-        data,
-        version: { increment: 1 },
-      },
-    });
-
-    // Log activity
-    await this.prisma.diagramActivity.create({
-      data: {
-        action: ActivityType.UPDATE_CLASS,
-        changes: data,
-        userId,
+    try {
+      console.log('📝 Actualizando diagrama:', {
         diagramId,
-      },
-    });
+        userId,
+        dataKeys: Object.keys(data || {}),
+        classesCount: data?.classes?.length,
+        relationsCount: data?.relations?.length
+      });
 
-    return updatedDiagram;
+      // Verify access
+      await this.getDiagramById(diagramId, userId);
+
+      const updatedDiagram = await this.prisma.diagram.update({
+        where: { id: diagramId },
+        data: {
+          data,
+          version: { increment: 1 },
+        },
+      });
+
+      console.log('✅ Diagrama actualizado en BD exitosamente');
+
+      // Log activity
+      await this.prisma.diagramActivity.create({
+        data: {
+          action: ActivityType.UPDATE_CLASS,
+          changes: data,
+          userId,
+          diagramId,
+        },
+      });
+
+      return updatedDiagram;
+    } catch (error) {
+      console.error('❌ Error actualizando diagrama:', error);
+      throw error;
+    }
   }
 
   async addUMLClass(diagramId: string, userId: string, classData: any) {

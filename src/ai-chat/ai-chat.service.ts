@@ -1,23 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
-import axios from 'axios';
+import { DiagramService } from '../diagram/diagram.service';
+import Anthropic from '@anthropic-ai/sdk';
 
 @Injectable()
 export class AiChatService {
+  private anthropic: Anthropic;
+
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-  ) {}
+    private diagramService: DiagramService,
+  ) {
+    const apiKey = this.configService.get('CLAUDE_API_KEY');
+    this.anthropic = new Anthropic({
+      apiKey: apiKey,
+    });
+  }
 
   async generateUMLFromPrompt(prompt: string, diagramId: string, userId: string) {
     try {
-      const geminiApiKey = this.configService.get('GEMINI_API_KEY');
-
-      if (!geminiApiKey) {
-        throw new Error('Gemini API key not configured');
-      }
-
       // Create a detailed prompt for UML generation
       const systemPrompt = `Eres un experto arquitecto de software especializado en diseño de sistemas y diagramas UML. Tu tarea es analizar la solicitud del usuario y generar un diagrama de clases UML completo y profesional.
 
@@ -79,39 +82,25 @@ REGLAS IMPORTANTES:
    - FERRETERÍA: Producto, Cliente, Venta, Proveedor, Categoría
    - RESTAURANTE: Plato, Pedido, Cliente, Mesa, Empleado
    - HOSPITAL: Paciente, Doctor, Cita, Tratamiento, Habitación
-   - ESCUELA: Estudiante, Profesor, Curso, Materia, Calificación
+   - ESCUELA: Estudiante, Profesor, Curso, Materia, Calificación`;
 
-Solicitud del usuario: ${prompt}
-
-Genera un modelo UML completo y profesional basado en esta solicitud.`;
-
-      const response = await axios.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-        {
-          contents: [
-            {
-              parts: [
-                {
-                  text: systemPrompt
-                }
-              ]
-            }
-          ]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-goog-api-key': geminiApiKey
+      const message = await this.anthropic.messages.create({
+        model: 'claude-3-haiku-20240307',
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: `${systemPrompt}\n\nSolicitud del usuario: ${prompt}\n\nGenera un modelo UML completo y profesional basado en esta solicitud.`
           }
-        }
-      );
+        ],
+      });
 
-      if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        throw new Error('Invalid response from Gemini API');
+      if (!message.content || message.content.length === 0) {
+        throw new Error('Invalid response from Claude API');
       }
 
-      const generatedText = response.data.candidates[0].content.parts[0].text;
-      console.log('📝 Respuesta de Gemini:', generatedText.substring(0, 200));
+      const generatedText = message.content[0].type === 'text' ? message.content[0].text : '';
+      console.log('📝 Respuesta de Claude:', generatedText.substring(0, 200));
 
       // Clean the response and extract JSON
       let cleanedResponse = generatedText.trim();
@@ -161,10 +150,10 @@ Genera un modelo UML completo y profesional basado en esta solicitud.`;
       return {
         success: true,
         model: umlModel,
-        message: 'UML model generated successfully with Gemini AI',
+        message: 'UML model generated successfully with Claude AI (Haiku)',
       };
     } catch (error) {
-      console.error('Error generating UML model with Gemini:', error);
+      console.error('Error generating UML model with Claude:', error);
 
       // Fallback to template model if AI fails
       const fallbackModel = this.generateFallbackModel(prompt);
@@ -760,60 +749,233 @@ Genera un modelo UML completo y profesional basado en esta solicitud.`;
     }
   }
 
-  async chatWithAI(message: string, context?: any) {
+  async chatWithAI(message: string, diagramId?: string, userId?: string) {
     try {
-      const geminiApiKey = this.configService.get('GEMINI_API_KEY');
+      let diagramContext = null;
 
-      if (!geminiApiKey) {
-        throw new Error('Gemini API key not configured');
-      }
-
-      const systemPrompt = `Eres un consultor experto en UML y arquitecto de software. Ayuda al usuario con sus preguntas sobre diagramas UML y proporciona consejos prácticos. Responde siempre en español.
-
-Contexto actual: ${context ? JSON.stringify(context) : 'Sin contexto de diagrama actual'}
-
-Mensaje del usuario: ${message}
-
-Proporciona una respuesta útil sobre diseño UML, mejores prácticas o sugerencias. Sé conciso pero informativo.`;
-
-      const response = await axios.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-        {
-          contents: [
-            {
-              parts: [
-                {
-                  text: systemPrompt
-                }
-              ]
-            }
-          ]
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-goog-api-key': geminiApiKey
-          }
+      // Obtener el diagrama JSON si se proporciona diagramId
+      if (diagramId && userId) {
+        try {
+          const diagram = await this.diagramService.getDiagramById(diagramId, userId);
+          diagramContext = diagram.data;
+          console.log('📊 Diagrama obtenido para contexto:', diagramId);
+        } catch (error) {
+          console.log('⚠️ No se pudo obtener el diagrama, continuando sin contexto');
         }
-      );
-
-      if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        throw new Error('Invalid response from Gemini API');
       }
 
-      const aiResponse = response.data.candidates[0].content.parts[0].text;
+      // Detectar si el usuario está solicitando creación o modificación de diagrama
+      const lowerMessage = message.toLowerCase();
+      const diagramKeywords = [
+        'crear', 'diseñar', 'generar', 'construir', 'hacer', 'modelar', 'armar',
+        'create', 'design', 'build', 'generate', 'make', 'construct', 'model',
+        'agregar', 'añadir', 'modificar', 'actualizar', 'cambiar', 'editar', 'eliminar', 'quitar',
+        'add', 'modify', 'update', 'change', 'edit', 'delete', 'remove',
+        'sistema', 'diagrama', 'modelo', 'esquema', 'clases', 'clase',
+        'system', 'diagram', 'schema', 'classes', 'class',
+        'relacion', 'relación', 'relation', 'relationship',
+        'agregacion', 'agregación', 'aggregation',
+        'composicion', 'composición', 'composition',
+        'herencia', 'inheritance', 'extends',
+        'asociacion', 'asociación', 'association',
+        'dependencia', 'dependency',
+        'atributo', 'attribute', 'campo', 'field',
+        'metodo', 'método', 'method', 'funcion', 'función', 'function'
+      ];
 
-      return {
-        response: aiResponse,
-        suggestions: [
-          'Crear un sistema de farmacia',
-          'Diseñar un e-commerce con productos y pedidos',
-          'Modelar un sistema de biblioteca',
-          'Generar un blog con posts y comentarios'
-        ],
-      };
+      const isDiagramRequest = diagramKeywords.some(keyword => lowerMessage.includes(keyword));
+
+      // Si es una solicitud de diagrama, generar el modelo UML directamente
+      if (isDiagramRequest && diagramId && userId) {
+        console.log('🎨 Detectada solicitud de diagrama, generando modelo UML...');
+
+        const systemPrompt = `Eres un experto arquitecto de software especializado en diseño de sistemas y diagramas UML. Tu tarea es analizar la solicitud del usuario y generar un diagrama de clases UML completo y profesional.
+
+${diagramContext && Object.keys(diagramContext).length > 0 ? `CONTEXTO DEL DIAGRAMA ACTUAL:
+El usuario ya tiene un diagrama con la siguiente estructura:
+${JSON.stringify(diagramContext, null, 2)}
+
+IMPORTANTE PARA MODIFICACIONES:
+- Si el usuario pide AGREGAR algo nuevo (clase, atributo, método, relación): MANTÉN todo lo existente y AGREGA lo nuevo
+- Si el usuario pide CAMBIAR/MODIFICAR algo existente (cambiar tipo de relación, modificar atributo, etc.): MANTÉN todo lo demás y SOLO modifica lo específicamente mencionado
+- Si el usuario pide ELIMINAR algo: MANTÉN todo lo demás y QUITA solo lo mencionado
+- Si pide crear un SISTEMA COMPLETAMENTE NUEVO no relacionado con el actual: genera un diagrama nuevo desde cero
+
+EJEMPLOS:
+- "cambiar la relación entre Medico e HistorialMedico a agregación" → Mantén todas las clases y relaciones, solo cambia el tipo de esa relación específica
+- "agregar clase Empleado" → Mantén todo y agrega la nueva clase
+- "modificar atributo nombre en Paciente" → Mantén todo y modifica solo ese atributo` : 'No hay diagrama existente. Genera un nuevo diagrama completo desde cero.'}
+
+ANALIZA el dominio del negocio mencionado y crea/modifica las clases necesarias con sus atributos, métodos y relaciones apropiadas.
+
+IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
+
+El JSON debe seguir exactamente esta estructura:
+{
+  "name": "Nombre del Sistema",
+  "classes": [
+    {
+      "id": "cls_nombreclase",
+      "name": "NombreClase",
+      "position": { "x": 100, "y": 100 },
+      "attributes": [
+        {
+          "id": "attr_1",
+          "name": "nombreAtributo",
+          "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
+          "stereotype": "id",
+          "nullable": false,
+          "unique": true
+        }
+      ],
+      "methods": [
+        {
+          "id": "method_1",
+          "name": "nombreMetodo",
+          "returnType": "void|String|Boolean|BigDecimal|etc",
+          "parameters": [],
+          "visibility": "public"
+        }
+      ],
+      "stereotypes": ["entity"]
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_1",
+      "sourceClassId": "cls_clase1",
+      "targetClassId": "cls_clase2",
+      "type": "OneToOne|OneToMany|ManyToOne|ManyToMany",
+      "name": "nombreRelacion"
+    }
+  ]
+}
+
+REGLAS IMPORTANTES:
+1. Analiza el contexto del negocio y crea entre 3-6 clases relevantes
+2. SIEMPRE incluir atributo "id" como primer atributo de cada clase con: type: "Long", stereotype: "id", nullable: false, unique: true
+3. Usa nombres descriptivos en español si el usuario habla español
+4. Tipos de datos apropiados: String, Long, Integer, BigDecimal (para precios/dinero), LocalDate, LocalDateTime, Boolean
+5. Posiciona clases en cuadrícula: incrementa x por 300, y por 250
+6. Crea relaciones lógicas entre clases (OneToMany, ManyToOne, etc.)
+7. Agrega métodos de negocio relevantes (calcular, validar, actualizar, etc.)`;
+
+        const claudeMessage = await this.anthropic.messages.create({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'user',
+              content: `${systemPrompt}\n\nSolicitud del usuario: ${message}\n\nGenera el modelo UML completo basado en esta solicitud ${diagramContext ? 'y el contexto del diagrama existente' : ''}.`
+            }
+          ],
+        });
+
+        if (!claudeMessage.content || claudeMessage.content.length === 0) {
+          throw new Error('Invalid response from Claude API');
+        }
+
+        const generatedText = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
+        console.log('📝 Respuesta de Claude para diagrama:', generatedText.substring(0, 200));
+
+        // Clean the response and extract JSON
+        let cleanedResponse = generatedText.trim();
+
+        // Remove markdown code blocks if present
+        if (cleanedResponse.startsWith('```json')) {
+          cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
+        } else if (cleanedResponse.startsWith('```')) {
+          cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
+        }
+
+        // Try to extract JSON if it's embedded in text
+        const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          cleanedResponse = jsonMatch[0];
+        }
+
+        let umlModel;
+        try {
+          umlModel = JSON.parse(cleanedResponse);
+          console.log('✅ JSON parseado exitosamente. Clases:', umlModel.classes?.length);
+        } catch (parseError) {
+          console.error('❌ Error parseando JSON de Claude:', parseError.message);
+          console.error('Respuesta limpia:', cleanedResponse.substring(0, 300));
+          // Fallback to a template model
+          console.log('🔄 Usando modelo de fallback para:', message);
+          umlModel = this.generateFallbackModel(message);
+        }
+
+        // Validate and ensure the model has the required structure
+        umlModel = this.validateAndFixModel(umlModel);
+
+        // Log the AI generation activity
+        await this.prisma.diagramActivity.create({
+          data: {
+            action: 'AI_GENERATION' as any,
+            changes: {
+              prompt: message,
+              generatedModel: umlModel,
+              aiResponse: cleanedResponse,
+              hadContext: !!diagramContext,
+            },
+            userId,
+            diagramId,
+          },
+        });
+
+        // Return response with the generated model
+        return {
+          response: `✨ ${umlModel.name}`,
+          suggestions: [
+            'Agregar más clases',
+            'Modificar atributos',
+            'Crear más relaciones',
+            'Generar otro sistema'
+          ],
+          model: umlModel, // Include the generated model in the response
+        };
+      } else {
+        // Respuesta conversacional regular (sin generación de diagrama)
+        const systemPrompt = `Eres un consultor experto en UML y arquitecto de software. Ayuda al usuario con sus preguntas sobre diagramas UML y proporciona consejos prácticos. Responde siempre en español de manera concisa.
+
+${diagramContext ? `CONTEXTO DEL DIAGRAMA ACTUAL:
+El usuario tiene un diagrama con la siguiente estructura:
+${JSON.stringify(diagramContext, null, 2)}
+
+Si el usuario pregunta sobre su diagrama, analiza el contexto actual.` : 'Sin contexto de diagrama actual.'}
+
+IMPORTANTE: Sé conciso pero informativo en tus respuestas.`;
+
+        const claudeMessage = await this.anthropic.messages.create({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 2048,
+          messages: [
+            {
+              role: 'user',
+              content: `${systemPrompt}\n\nMensaje del usuario: ${message}\n\nProporciona una respuesta útil y práctica.`
+            }
+          ],
+        });
+
+        if (!claudeMessage.content || claudeMessage.content.length === 0) {
+          throw new Error('Invalid response from Claude API');
+        }
+
+        const aiResponse = claudeMessage.content[0].type === 'text' ? claudeMessage.content[0].text : '';
+
+        return {
+          response: aiResponse,
+          suggestions: [
+            'Crear un sistema de farmacia',
+            'Diseñar un e-commerce con productos y pedidos',
+            'Modelar un sistema de biblioteca',
+            'Generar un blog con posts y comentarios'
+          ],
+        };
+      }
     } catch (error) {
-      console.error('Error in AI chat:', error);
+      console.error('Error in AI chat with Claude:', error);
       return {
         response: `Entiendo que quieres saber sobre: "${message}". Déjame ayudarte a crear un diagrama UML para eso. Puedes pedirme que genere diagramas específicos o explicar conceptos UML.`,
         suggestions: [

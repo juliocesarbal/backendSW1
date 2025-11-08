@@ -1,9 +1,12 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { DiagramService } from '../diagram/diagram.service';
 export declare class AiChatService {
     private prisma;
     private configService;
-    constructor(prisma: PrismaService, configService: ConfigService);
+    private diagramService;
+    private anthropic;
+    constructor(prisma: PrismaService, configService: ConfigService, diagramService: DiagramService);
     generateUMLFromPrompt(prompt: string, diagramId: string, userId: string): Promise<{
         success: boolean;
         model: any;
@@ -18,8 +21,13 @@ export declare class AiChatService {
     private generateGenericModel;
     private validateAndFixModel;
     private generateFallbackModel;
-    chatWithAI(message: string, context?: any): Promise<{
-        response: any;
+    chatWithAI(message: string, diagramId?: string, userId?: string): Promise<{
+        response: string;
         suggestions: string[];
+        model: any;
+    } | {
+        response: string;
+        suggestions: string[];
+        model?: undefined;
     }>;
 }

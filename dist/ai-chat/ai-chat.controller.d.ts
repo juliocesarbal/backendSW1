@@ -5,7 +5,7 @@ declare class GenerateUMLDto {
 }
 declare class ChatDto {
     message: string;
-    context?: any;
+    diagramId?: string;
 }
 export declare class AiChatController {
     private aiChatService;
@@ -15,9 +15,14 @@ export declare class AiChatController {
         model: any;
         message: string;
     }>;
-    chat(chatDto: ChatDto): Promise<{
-        response: any;
+    chat(chatDto: ChatDto, req: any): Promise<{
+        response: string;
         suggestions: string[];
+        model: any;
+    } | {
+        response: string;
+        suggestions: string[];
+        model?: undefined;
     }>;
     getSuggestions(): Promise<{
         suggestions: string[];

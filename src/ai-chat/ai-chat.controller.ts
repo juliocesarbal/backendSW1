@@ -18,8 +18,9 @@ class ChatDto {
   @IsNotEmpty()
   message: string;
 
+  @IsString()
   @IsOptional()
-  context?: any;
+  diagramId?: string;
 }
 
 @Controller('ai-chat')
@@ -37,8 +38,12 @@ export class AiChatController {
   }
 
   @Post('chat')
-  async chat(@Body() chatDto: ChatDto) {
-    return this.aiChatService.chatWithAI(chatDto.message, chatDto.context);
+  async chat(@Body() chatDto: ChatDto, @Request() req) {
+    return this.aiChatService.chatWithAI(
+      chatDto.message,
+      chatDto.diagramId,
+      req.user.userId,
+    );
   }
 
   @Get('suggestions')

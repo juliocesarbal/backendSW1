@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const ai_chat_controller_1 = require("./ai-chat.controller");
 const ai_chat_service_1 = require("./ai-chat.service");
 const prisma_module_1 = require("../prisma/prisma.module");
+const diagram_module_1 = require("../diagram/diagram.module");
 let AiChatModule = class AiChatModule {
 };
 exports.AiChatModule = AiChatModule;
 exports.AiChatModule = AiChatModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule],
+        imports: [prisma_module_1.PrismaModule, diagram_module_1.DiagramModule],
         controllers: [ai_chat_controller_1.AiChatController],
         providers: [ai_chat_service_1.AiChatService],
         exports: [ai_chat_service_1.AiChatService],
