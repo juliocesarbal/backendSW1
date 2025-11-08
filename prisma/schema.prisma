@@ -176,6 +176,7 @@ enum ActivityType {
   UPDATE_RELATION
   DELETE_RELATION
   AI_GENERATION
+  AI_IMAGE_ANALYSIS
 }
 
 model DiagramActivity {

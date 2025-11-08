@@ -241,7 +241,7 @@ MULTIPLICIDAD (siempre incluir):
     generateFallbackModel(prompt) {
         return this.generateGenericModel(prompt);
     }
-    async chatWithAI(message, diagramId, userId) {
+    async chatWithAI(message, diagramId, userId, imageBase64) {
         try {
             let diagramContext = null;
             if (diagramId && userId) {
@@ -253,6 +253,138 @@ MULTIPLICIDAD (siempre incluir):
                 catch (error) {
                     console.log('⚠️ No se pudo obtener el diagrama, continuando sin contexto');
                 }
+            }
+            if (imageBase64 && diagramId && userId) {
+                console.log('🖼️ Imagen detectada, analizando diagrama de clases...');
+                const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+                if (!base64Match) {
+                    throw new Error('Formato de imagen inválido. Debe ser base64 con data URL.');
+                }
+                const mediaType = `image/${base64Match[1]}`;
+                const base64Data = base64Match[2];
+                const visionPrompt = `Analiza esta imagen que contiene un diagrama de clases UML y extrae TODA la información para recrearlo exactamente.
+
+IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
+
+Extrae:
+- Todas las clases con sus nombres exactos
+- Todos los atributos de cada clase con: nombre, tipo, visibilidad
+- Todas las relaciones entre clases con: tipo de relación, multiplicidad
+- Posiciones aproximadas de las clases (distribúyelas en cuadrícula)
+
+El JSON debe seguir exactamente esta estructura:
+{
+  "name": "Nombre del Sistema extraído de la imagen",
+  "classes": [
+    {
+      "id": "cls_nombreclase",
+      "name": "NombreClase",
+      "position": { "x": 100, "y": 100 },
+      "attributes": [
+        {
+          "id": "attr_1",
+          "name": "nombreAtributo",
+          "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
+          "stereotype": "id|fk",
+          "nullable": false,
+          "unique": false
+        }
+      ],
+      "methods": [],
+      "stereotypes": ["entity"]
+    }
+  ],
+  "relations": [
+    {
+      "id": "rel_1",
+      "sourceClassId": "cls_clase1",
+      "targetClassId": "cls_clase2",
+      "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToMany|ManyToOne|ManyToMany",
+      "name": "nombreRelacion",
+      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
+    }
+  ]
+}
+
+REGLAS:
+1. Cada clase DEBE tener un atributo "id" como primer atributo
+2. Si ves Foreign Keys en la imagen, márcalos con stereotype="fk"
+3. Respeta los nombres exactos que ves en la imagen
+4. Identifica correctamente los tipos de relaciones por las flechas/líneas
+5. Extrae la multiplicidad si está visible (1, *, 0..1, 1..*, etc.)
+6. NO generar métodos - el array "methods" siempre vacío []
+7. Posiciona las clases en cuadrícula incrementando x por 300, y por 250`;
+                const claudeVisionMessage = await this.anthropic.messages.create({
+                    model: 'claude-3-haiku-20240307',
+                    max_tokens: 4096,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'image',
+                                    source: {
+                                        type: 'base64',
+                                        media_type: mediaType,
+                                        data: base64Data,
+                                    },
+                                },
+                                {
+                                    type: 'text',
+                                    text: visionPrompt,
+                                },
+                            ],
+                        },
+                    ],
+                });
+                if (!claudeVisionMessage.content || claudeVisionMessage.content.length === 0) {
+                    throw new Error('Invalid response from Claude Vision API');
+                }
+                const visionText = claudeVisionMessage.content[0].type === 'text' ? claudeVisionMessage.content[0].text : '';
+                console.log('📝 Respuesta de Claude Vision:', visionText.substring(0, 200));
+                let cleanedResponse = visionText.trim();
+                if (cleanedResponse.startsWith('```json')) {
+                    cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
+                }
+                else if (cleanedResponse.startsWith('```')) {
+                    cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
+                }
+                const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    cleanedResponse = jsonMatch[0];
+                }
+                let umlModel;
+                try {
+                    umlModel = JSON.parse(cleanedResponse);
+                    console.log('✅ Diagrama extraído de imagen. Clases:', umlModel.classes?.length);
+                }
+                catch (parseError) {
+                    console.error('❌ Error parseando JSON de imagen:', parseError.message);
+                    throw new Error('No se pudo extraer el diagrama de la imagen. Intenta con una imagen más clara.');
+                }
+                umlModel = this.validateAndFixModel(umlModel);
+                await this.prisma.diagramActivity.create({
+                    data: {
+                        action: 'AI_IMAGE_ANALYSIS',
+                        changes: {
+                            message,
+                            extractedModel: umlModel,
+                            imageProvided: true,
+                        },
+                        userId,
+                        diagramId,
+                    },
+                });
+                return {
+                    response: `✨ ${umlModel.name} (extraído de imagen)`,
+                    suggestions: [
+                        'Modificar atributos',
+                        'Cambiar relaciones',
+                        'Agregar más clases',
+                        'Ajustar multiplicidades'
+                    ],
+                    model: umlModel,
+                };
             }
             const lowerMessage = message.toLowerCase();
             const diagramKeywords = [

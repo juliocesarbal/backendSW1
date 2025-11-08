@@ -15,7 +15,7 @@ export declare class AiChatService {
     private generateGenericModel;
     private validateAndFixModel;
     private generateFallbackModel;
-    chatWithAI(message: string, diagramId?: string, userId?: string): Promise<{
+    chatWithAI(message: string, diagramId?: string, userId?: string, imageBase64?: string): Promise<{
         response: string;
         suggestions: string[];
         model: any;

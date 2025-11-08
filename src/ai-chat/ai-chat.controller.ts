@@ -21,6 +21,10 @@ class ChatDto {
   @IsString()
   @IsOptional()
   diagramId?: string;
+
+  @IsString()
+  @IsOptional()
+  image?: string; // Base64 encoded image
 }
 
 @Controller('ai-chat')
@@ -43,6 +47,7 @@ export class AiChatController {
       chatDto.message,
       chatDto.diagramId,
       req.user.userId,
+      chatDto.image,
     );
   }
 

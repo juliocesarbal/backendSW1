@@ -6,6 +6,7 @@ declare class GenerateUMLDto {
 declare class ChatDto {
     message: string;
     diagramId?: string;
+    image?: string;
 }
 export declare class AiChatController {
     private aiChatService;

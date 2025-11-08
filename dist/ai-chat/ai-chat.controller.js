@@ -41,6 +41,11 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], ChatDto.prototype, "diagramId", void 0);
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], ChatDto.prototype, "image", void 0);
 let AiChatController = class AiChatController {
     constructor(aiChatService) {
         this.aiChatService = aiChatService;
@@ -49,7 +54,7 @@ let AiChatController = class AiChatController {
         return this.aiChatService.generateUMLFromPrompt(generateUMLDto.prompt, generateUMLDto.diagramId, req.user.userId);
     }
     async chat(chatDto, req) {
-        return this.aiChatService.chatWithAI(chatDto.message, chatDto.diagramId, req.user.userId);
+        return this.aiChatService.chatWithAI(chatDto.message, chatDto.diagramId, req.user.userId, chatDto.image);
     }
     async getSuggestions() {
         return {
