@@ -12,12 +12,6 @@ export declare class AiChatService {
         model: any;
         message: string;
     }>;
-    private generateEcommerceModel;
-    private generateLibraryModel;
-    private generateBlogModel;
-    private generateRestaurantModel;
-    private generateHardwareStoreModel;
-    private generatePharmacyModel;
     private generateGenericModel;
     private validateAndFixModel;
     private generateFallbackModel;

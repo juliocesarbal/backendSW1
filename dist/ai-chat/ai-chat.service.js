@@ -29,7 +29,7 @@ let AiChatService = class AiChatService {
         try {
             const systemPrompt = `Eres un experto arquitecto de software especializado en diseño de sistemas y diagramas UML. Tu tarea es analizar la solicitud del usuario y generar un diagrama de clases UML completo y profesional.
 
-ANALIZA el dominio del negocio mencionado (farmacia, ferretería, restaurante, hospital, etc.) y crea las clases necesarias con sus atributos, métodos y relaciones apropiadas.
+ANALIZA el dominio del negocio mencionado (farmacia, ferretería, restaurante, hospital, etc.) y crea las clases necesarias con sus atributos y relaciones apropiadas.
 
 IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
 
@@ -46,20 +46,12 @@ El JSON debe seguir exactamente esta estructura:
           "id": "attr_1",
           "name": "nombreAtributo",
           "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
-          "stereotype": "id",
+          "stereotype": "id|fk",
           "nullable": false,
           "unique": true
         }
       ],
-      "methods": [
-        {
-          "id": "method_1",
-          "name": "nombreMetodo",
-          "returnType": "void|String|Boolean|BigDecimal|etc",
-          "parameters": [],
-          "visibility": "public"
-        }
-      ],
+      "methods": [],
       "stereotypes": ["entity"]
     }
   ],
@@ -68,8 +60,9 @@ El JSON debe seguir exactamente esta estructura:
       "id": "rel_1",
       "sourceClassId": "cls_clase1",
       "targetClassId": "cls_clase2",
-      "type": "OneToOne|OneToMany|ManyToOne|ManyToMany",
-      "name": "nombreRelacion"
+      "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToOne|OneToMany|ManyToOne|ManyToMany",
+      "name": "nombreRelacion",
+      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
     }
   ]
 }
@@ -80,14 +73,35 @@ REGLAS IMPORTANTES:
 3. Usa nombres descriptivos en español si el usuario habla español
 4. Tipos de datos apropiados: String, Long, Integer, BigDecimal (para precios/dinero), LocalDate, LocalDateTime, Boolean
 5. Posiciona clases en cuadrícula: incrementa x por 300, y por 250
-6. Crea relaciones lógicas entre clases (OneToMany, ManyToOne, etc.)
-7. Agrega métodos de negocio relevantes (calcular, validar, actualizar, etc.)
+6. NO GENERAR MÉTODOS - el array "methods" siempre debe estar vacío []
+7. Crea relaciones lógicas entre clases usando los tipos apropiados
 8. Para cada dominio considera:
    - FARMACIA: Medicamento, Cliente, Venta, Proveedor, Receta
    - FERRETERÍA: Producto, Cliente, Venta, Proveedor, Categoría
    - RESTAURANTE: Plato, Pedido, Cliente, Mesa, Empleado
    - HOSPITAL: Paciente, Doctor, Cita, Tratamiento, Habitación
-   - ESCUELA: Estudiante, Profesor, Curso, Materia, Calificación`;
+   - ESCUELA: Estudiante, Profesor, Curso, Materia, Calificación
+
+TIPOS DE RELACIONES:
+- ASSOCIATION: Relación simple entre clases
+- AGGREGATION: El "todo" puede existir sin las "partes"
+- COMPOSITION: El "todo" contiene las "partes" completamente
+- INHERITANCE: Herencia entre clases
+- DEPENDENCY: Una clase usa a otra temporalmente
+- OneToMany/ManyToOne: Relaciones de cardinalidad específica
+- ManyToMany: Relaciones muchos a muchos
+
+GENERACIÓN DE FOREIGN KEYS (FK):
+- Para relaciones OneToMany: agregar FK en el lado "many" con stereotype="fk", type="Long"
+- Para relaciones AGGREGATION: agregar FK en la clase contenida
+- Para relaciones COMPOSITION: agregar FK con nullable=false
+- El nombre del FK debe ser: nombreClaseReferenciadaId (ejemplo: "estudianteId", "cursoId")
+
+MULTIPLICIDAD (siempre incluir):
+- "1:1" = uno a uno
+- "1:*" = uno a muchos
+- "*:*" = muchos a muchos
+- "0..1:1..*" = opcional a uno o más`;
             const message = await this.anthropic.messages.create({
                 model: 'claude-3-haiku-20240307',
                 max_tokens: 4096,
@@ -166,464 +180,6 @@ REGLAS IMPORTANTES:
             };
         }
     }
-    generateEcommerceModel() {
-        return {
-            name: 'E-commerce System',
-            classes: [
-                {
-                    id: 'cls_user',
-                    name: 'User',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'email', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_3', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_4', name: 'password', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_5', name: 'address', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_1', name: 'login', returnType: 'Boolean', parameters: [], visibility: 'public' },
-                        { id: 'method_2', name: 'updateProfile', returnType: 'void', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_product',
-                    name: 'Product',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_6', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_7', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_8', name: 'description', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_9', name: 'price', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_10', name: 'stock', type: 'Integer', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_3', name: 'updateStock', returnType: 'void', parameters: [], visibility: 'public' },
-                        { id: 'method_4', name: 'calculateDiscount', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_category',
-                    name: 'Category',
-                    position: { x: 700, y: 100 },
-                    attributes: [
-                        { id: 'attr_11', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_12', name: 'name', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_13', name: 'description', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_order',
-                    name: 'Order',
-                    position: { x: 250, y: 350 },
-                    attributes: [
-                        { id: 'attr_14', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_15', name: 'orderDate', type: 'LocalDateTime', nullable: false, unique: false },
-                        { id: 'attr_16', name: 'status', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_17', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_5', name: 'calculateTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                        { id: 'method_6', name: 'updateStatus', returnType: 'void', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_product',
-                    targetClassId: 'cls_category',
-                    type: 'ManyToOne',
-                    name: 'category',
-                },
-                {
-                    id: 'rel_2',
-                    sourceClassId: 'cls_order',
-                    targetClassId: 'cls_user',
-                    type: 'ManyToOne',
-                    name: 'customer',
-                },
-            ],
-        };
-    }
-    generateLibraryModel() {
-        return {
-            name: 'Library Management System',
-            classes: [
-                {
-                    id: 'cls_book',
-                    name: 'Book',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'isbn', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_3', name: 'title', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_4', name: 'publishedDate', type: 'LocalDate', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_author',
-                    name: 'Author',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_5', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_6', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_7', name: 'biography', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_borrower',
-                    name: 'Borrower',
-                    position: { x: 100, y: 350 },
-                    attributes: [
-                        { id: 'attr_8', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_9', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_10', name: 'email', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_11', name: 'membershipDate', type: 'LocalDate', nullable: false, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_book',
-                    targetClassId: 'cls_author',
-                    type: 'ManyToOne',
-                    name: 'author',
-                },
-            ],
-        };
-    }
-    generateBlogModel() {
-        return {
-            name: 'Blog Platform',
-            classes: [
-                {
-                    id: 'cls_user',
-                    name: 'User',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'username', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_3', name: 'email', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_4', name: 'bio', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_post',
-                    name: 'Post',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_5', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_6', name: 'title', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_7', name: 'content', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_8', name: 'publishedAt', type: 'LocalDateTime', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_comment',
-                    name: 'Comment',
-                    position: { x: 400, y: 350 },
-                    attributes: [
-                        { id: 'attr_9', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_10', name: 'content', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_11', name: 'createdAt', type: 'LocalDateTime', nullable: false, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_post',
-                    targetClassId: 'cls_user',
-                    type: 'ManyToOne',
-                    name: 'author',
-                },
-                {
-                    id: 'rel_2',
-                    sourceClassId: 'cls_comment',
-                    targetClassId: 'cls_post',
-                    type: 'ManyToOne',
-                    name: 'post',
-                },
-                {
-                    id: 'rel_3',
-                    sourceClassId: 'cls_comment',
-                    targetClassId: 'cls_user',
-                    type: 'ManyToOne',
-                    name: 'author',
-                },
-            ],
-        };
-    }
-    generateRestaurantModel() {
-        return {
-            name: 'Restaurant Ordering System',
-            classes: [
-                {
-                    id: 'cls_customer',
-                    name: 'Customer',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_3', name: 'phone', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_4', name: 'address', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_menuitem',
-                    name: 'MenuItem',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_5', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_6', name: 'name', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_7', name: 'description', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_8', name: 'price', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_9', name: 'category', type: 'String', nullable: false, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_order',
-                    name: 'Order',
-                    position: { x: 250, y: 350 },
-                    attributes: [
-                        { id: 'attr_10', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_11', name: 'orderTime', type: 'LocalDateTime', nullable: false, unique: false },
-                        { id: 'attr_12', name: 'status', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_13', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_1', name: 'calculateTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_order',
-                    targetClassId: 'cls_customer',
-                    type: 'ManyToOne',
-                    name: 'customer',
-                },
-            ],
-        };
-    }
-    generateHardwareStoreModel() {
-        return {
-            name: 'Sistema de Ferretería',
-            classes: [
-                {
-                    id: 'cls_producto',
-                    name: 'Producto',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'nombre', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_3', name: 'codigo', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_4', name: 'precio', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_5', name: 'stock', type: 'Integer', nullable: false, unique: false },
-                        { id: 'attr_6', name: 'unidadMedida', type: 'String', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_1', name: 'actualizarStock', returnType: 'void', parameters: [], visibility: 'public' },
-                        { id: 'method_2', name: 'calcularPrecioConIVA', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_categoria',
-                    name: 'Categoria',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_7', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_8', name: 'nombre', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_9', name: 'descripcion', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_cliente',
-                    name: 'Cliente',
-                    position: { x: 700, y: 100 },
-                    attributes: [
-                        { id: 'attr_10', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_11', name: 'nombre', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_12', name: 'ruc', type: 'String', nullable: true, unique: true },
-                        { id: 'attr_13', name: 'telefono', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_14', name: 'direccion', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_venta',
-                    name: 'Venta',
-                    position: { x: 250, y: 350 },
-                    attributes: [
-                        { id: 'attr_15', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_16', name: 'fecha', type: 'LocalDateTime', nullable: false, unique: false },
-                        { id: 'attr_17', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_18', name: 'formaPago', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_19', name: 'numeroFactura', type: 'String', nullable: true, unique: true },
-                    ],
-                    methods: [
-                        { id: 'method_3', name: 'calcularTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                        { id: 'method_4', name: 'generarFactura', returnType: 'String', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_proveedor',
-                    name: 'Proveedor',
-                    position: { x: 550, y: 350 },
-                    attributes: [
-                        { id: 'attr_20', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_21', name: 'razonSocial', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_22', name: 'ruc', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_23', name: 'telefono', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_24', name: 'email', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_producto',
-                    targetClassId: 'cls_categoria',
-                    type: 'ManyToOne',
-                    name: 'categoria',
-                },
-                {
-                    id: 'rel_2',
-                    sourceClassId: 'cls_venta',
-                    targetClassId: 'cls_cliente',
-                    type: 'ManyToOne',
-                    name: 'cliente',
-                },
-                {
-                    id: 'rel_3',
-                    sourceClassId: 'cls_producto',
-                    targetClassId: 'cls_proveedor',
-                    type: 'ManyToOne',
-                    name: 'proveedor',
-                },
-            ],
-        };
-    }
-    generatePharmacyModel() {
-        return {
-            name: 'Sistema de Farmacia',
-            classes: [
-                {
-                    id: 'cls_medicamento',
-                    name: 'Medicamento',
-                    position: { x: 100, y: 100 },
-                    attributes: [
-                        { id: 'attr_1', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_2', name: 'nombre', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_3', name: 'principioActivo', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_4', name: 'precio', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_5', name: 'stock', type: 'Integer', nullable: false, unique: false },
-                        { id: 'attr_6', name: 'requiereReceta', type: 'Boolean', nullable: false, unique: false },
-                        { id: 'attr_7', name: 'fechaVencimiento', type: 'LocalDate', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_1', name: 'actualizarStock', returnType: 'void', parameters: [], visibility: 'public' },
-                        { id: 'method_2', name: 'verificarVencimiento', returnType: 'Boolean', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_cliente',
-                    name: 'Cliente',
-                    position: { x: 400, y: 100 },
-                    attributes: [
-                        { id: 'attr_8', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_9', name: 'nombre', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_10', name: 'dni', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_11', name: 'telefono', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_12', name: 'email', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_13', name: 'direccion', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_venta',
-                    name: 'Venta',
-                    position: { x: 250, y: 350 },
-                    attributes: [
-                        { id: 'attr_14', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_15', name: 'fecha', type: 'LocalDateTime', nullable: false, unique: false },
-                        { id: 'attr_16', name: 'total', type: 'BigDecimal', nullable: false, unique: false },
-                        { id: 'attr_17', name: 'formaPago', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_18', name: 'tieneReceta', type: 'Boolean', nullable: false, unique: false },
-                    ],
-                    methods: [
-                        { id: 'method_3', name: 'calcularTotal', returnType: 'BigDecimal', parameters: [], visibility: 'public' },
-                        { id: 'method_4', name: 'validarReceta', returnType: 'Boolean', parameters: [], visibility: 'public' },
-                    ],
-                    stereotypes: ['entity'],
-                },
-                {
-                    id: 'cls_proveedor',
-                    name: 'Proveedor',
-                    position: { x: 550, y: 350 },
-                    attributes: [
-                        { id: 'attr_19', name: 'id', type: 'Long', stereotype: 'id', nullable: false, unique: true },
-                        { id: 'attr_20', name: 'razonSocial', type: 'String', nullable: false, unique: false },
-                        { id: 'attr_21', name: 'ruc', type: 'String', nullable: false, unique: true },
-                        { id: 'attr_22', name: 'telefono', type: 'String', nullable: true, unique: false },
-                        { id: 'attr_23', name: 'email', type: 'String', nullable: true, unique: false },
-                    ],
-                    methods: [],
-                    stereotypes: ['entity'],
-                },
-            ],
-            relations: [
-                {
-                    id: 'rel_1',
-                    sourceClassId: 'cls_venta',
-                    targetClassId: 'cls_cliente',
-                    type: 'ManyToOne',
-                    name: 'cliente',
-                },
-                {
-                    id: 'rel_2',
-                    sourceClassId: 'cls_medicamento',
-                    targetClassId: 'cls_proveedor',
-                    type: 'ManyToOne',
-                    name: 'proveedor',
-                },
-            ],
-        };
-    }
     generateGenericModel(prompt) {
         return {
             name: 'Generated Model',
@@ -683,38 +239,7 @@ REGLAS IMPORTANTES:
         return model;
     }
     generateFallbackModel(prompt) {
-        const lowerPrompt = prompt.toLowerCase();
-        if (lowerPrompt.includes('ferreteria') || lowerPrompt.includes('ferretería') ||
-            lowerPrompt.includes('hardware') || lowerPrompt.includes('herramienta') ||
-            lowerPrompt.includes('construccion') || lowerPrompt.includes('construcción')) {
-            return this.generateHardwareStoreModel();
-        }
-        else if (lowerPrompt.includes('farmacia') || lowerPrompt.includes('pharmacy') ||
-            lowerPrompt.includes('medicamento') || lowerPrompt.includes('medicine') ||
-            lowerPrompt.includes('droga') || lowerPrompt.includes('drug')) {
-            return this.generatePharmacyModel();
-        }
-        else if (lowerPrompt.includes('ecommerce') || lowerPrompt.includes('e-commerce') ||
-            lowerPrompt.includes('shop') || lowerPrompt.includes('tienda') ||
-            (lowerPrompt.includes('product') && lowerPrompt.includes('order')) ||
-            (lowerPrompt.includes('producto') && lowerPrompt.includes('pedido'))) {
-            return this.generateEcommerceModel();
-        }
-        else if (lowerPrompt.includes('library') || lowerPrompt.includes('book') ||
-            lowerPrompt.includes('biblioteca') || lowerPrompt.includes('libro')) {
-            return this.generateLibraryModel();
-        }
-        else if (lowerPrompt.includes('blog') || lowerPrompt.includes('post') ||
-            lowerPrompt.includes('articulo') || lowerPrompt.includes('comentario')) {
-            return this.generateBlogModel();
-        }
-        else if (lowerPrompt.includes('restaurant') || lowerPrompt.includes('restaurante') ||
-            (lowerPrompt.includes('menu') && lowerPrompt.includes('order'))) {
-            return this.generateRestaurantModel();
-        }
-        else {
-            return this.generateGenericModel(prompt);
-        }
+        return this.generateGenericModel(prompt);
     }
     async chatWithAI(message, diagramId, userId) {
         try {
@@ -756,17 +281,17 @@ El usuario ya tiene un diagrama con la siguiente estructura:
 ${JSON.stringify(diagramContext, null, 2)}
 
 IMPORTANTE PARA MODIFICACIONES:
-- Si el usuario pide AGREGAR algo nuevo (clase, atributo, método, relación): MANTÉN todo lo existente y AGREGA lo nuevo
+- Si el usuario pide AGREGAR algo nuevo (clase, atributo, relación): MANTÉN todo lo existente y AGREGA lo nuevo
 - Si el usuario pide CAMBIAR/MODIFICAR algo existente (cambiar tipo de relación, modificar atributo, etc.): MANTÉN todo lo demás y SOLO modifica lo específicamente mencionado
 - Si el usuario pide ELIMINAR algo: MANTÉN todo lo demás y QUITA solo lo mencionado
 - Si pide crear un SISTEMA COMPLETAMENTE NUEVO no relacionado con el actual: genera un diagrama nuevo desde cero
 
 EJEMPLOS:
-- "cambiar la relación entre Medico e HistorialMedico a agregación" → Mantén todas las clases y relaciones, solo cambia el tipo de esa relación específica
+- "cambiar la relación entre Medico e HistorialMedico a agregación" → Mantén todas las clases y relaciones, solo cambia el tipo de esa relación específica a AGGREGATION
 - "agregar clase Empleado" → Mantén todo y agrega la nueva clase
 - "modificar atributo nombre en Paciente" → Mantén todo y modifica solo ese atributo` : 'No hay diagrama existente. Genera un nuevo diagrama completo desde cero.'}
 
-ANALIZA el dominio del negocio mencionado y crea/modifica las clases necesarias con sus atributos, métodos y relaciones apropiadas.
+ANALIZA el dominio del negocio mencionado y crea/modifica las clases necesarias con sus atributos y relaciones apropiadas.
 
 IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
 
@@ -783,20 +308,12 @@ El JSON debe seguir exactamente esta estructura:
           "id": "attr_1",
           "name": "nombreAtributo",
           "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
-          "stereotype": "id",
+          "stereotype": "id|fk",
           "nullable": false,
           "unique": true
         }
       ],
-      "methods": [
-        {
-          "id": "method_1",
-          "name": "nombreMetodo",
-          "returnType": "void|String|Boolean|BigDecimal|etc",
-          "parameters": [],
-          "visibility": "public"
-        }
-      ],
+      "methods": [],
       "stereotypes": ["entity"]
     }
   ],
@@ -805,8 +322,9 @@ El JSON debe seguir exactamente esta estructura:
       "id": "rel_1",
       "sourceClassId": "cls_clase1",
       "targetClassId": "cls_clase2",
-      "type": "OneToOne|OneToMany|ManyToOne|ManyToMany",
-      "name": "nombreRelacion"
+      "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToOne|OneToMany|ManyToOne|ManyToMany",
+      "name": "nombreRelacion",
+      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
     }
   ]
 }
@@ -817,8 +335,62 @@ REGLAS IMPORTANTES:
 3. Usa nombres descriptivos en español si el usuario habla español
 4. Tipos de datos apropiados: String, Long, Integer, BigDecimal (para precios/dinero), LocalDate, LocalDateTime, Boolean
 5. Posiciona clases en cuadrícula: incrementa x por 300, y por 250
-6. Crea relaciones lógicas entre clases (OneToMany, ManyToOne, etc.)
-7. Agrega métodos de negocio relevantes (calcular, validar, actualizar, etc.)`;
+6. NO GENERAR MÉTODOS - el array "methods" siempre debe estar vacío []
+7. Crea relaciones lógicas entre clases usando los tipos apropiados
+
+TIPOS DE RELACIONES Y CUANDO USARLAS:
+- ASSOCIATION: Relación simple entre clases (ejemplo: Profesor - Curso)
+- AGGREGATION: El "todo" puede existir sin las "partes" (ejemplo: Departamento - Empleado, un empleado puede existir sin departamento)
+- COMPOSITION: El "todo" contiene las "partes" completamente (ejemplo: Pedido - LineaPedido, las líneas no existen sin el pedido)
+- INHERITANCE: Herencia entre clases (ejemplo: Persona → Estudiante, Profesor)
+- DEPENDENCY: Una clase usa a otra temporalmente
+- OneToMany/ManyToOne: Relaciones de cardinalidad específica
+- ManyToMany: Relaciones muchos a muchos
+
+GENERACIÓN DE FOREIGN KEYS (FK):
+- Para relaciones OneToMany: agregar FK en el lado "many" (ejemplo: Estudiante 1:N Nota → Nota tiene "estudianteId" con stereotype="fk")
+- Para relaciones ManyToOne: agregar FK en el lado source
+- Para relaciones AGGREGATION: agregar FK en la clase contenida
+- Para relaciones COMPOSITION: agregar FK en la clase contenida con nullable=false
+- FK siempre deben tener: type="Long", stereotype="fk", unique=false
+- El nombre del FK debe ser: nombreClaseReferenciadaId (ejemplo: "estudianteId", "cursoId", "pedidoId")
+
+MULTIPLICIDAD:
+- Formato: "multiplicidadSource:multiplicidadTarget"
+- "1:1" = uno a uno
+- "1:*" = uno a muchos
+- "*:*" = muchos a muchos
+- "0..1:1..*" = opcional a uno o más
+- Siempre incluir multiplicidad en las relaciones
+
+EJEMPLOS CONCRETOS:
+
+EJEMPLO 1 - ESTUDIANTE Y NOTA (1:N con AGGREGATION):
+Clase Estudiante: { id, nombre, email } - sin FK
+Clase Nota: { id, valor, materia, estudianteId (stereotype="fk", type="Long") }
+Relación: { type: "AGGREGATION", sourceClassId: "cls_estudiante", targetClassId: "cls_nota", multiplicity: "1:*" }
+
+EJEMPLO 2 - ESTUDIANTE Y CURSO (N:M con ASSOCIATION):
+Clase Estudiante: { id, nombre, email } - sin FK directo
+Clase Curso: { id, nombre, creditos } - sin FK directo
+Relación: { type: "ASSOCIATION", sourceClassId: "cls_estudiante", targetClassId: "cls_curso", multiplicity: "*:*" }
+NOTA: En implementación real requeriría tabla intermedia
+
+EJEMPLO 3 - PEDIDO Y LINEA PEDIDO (1:N con COMPOSITION):
+Clase Pedido: { id, fecha, total } - sin FK
+Clase LineaPedido: { id, cantidad, precioUnitario, pedidoId (stereotype="fk", type="Long", nullable=false) }
+Relación: { type: "COMPOSITION", sourceClassId: "cls_pedido", targetClassId: "cls_lineapedido", multiplicity: "1:*" }
+
+EJEMPLO 4 - DEPARTAMENTO Y EMPLEADO (1:N con AGGREGATION):
+Clase Departamento: { id, nombre } - sin FK
+Clase Empleado: { id, nombre, salario, departamentoId (stereotype="fk", type="Long") }
+Relación: { type: "AGGREGATION", sourceClassId: "cls_departamento", targetClassId: "cls_empleado", multiplicity: "1:*" }
+
+EJEMPLO 5 - PERSONA Y ESTUDIANTE (HERENCIA):
+Clase Persona: { id, nombre, dni }
+Clase Estudiante: { id, matricula, carrera }
+Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId: "cls_persona", multiplicity: "" }
+NOTA: Estudiante hereda de Persona`;
                 const claudeMessage = await this.anthropic.messages.create({
                     model: 'claude-3-haiku-20240307',
                     max_tokens: 4096,
