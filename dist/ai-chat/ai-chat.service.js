@@ -20,8 +20,9 @@ let AiChatService = class AiChatService {
         this.prisma = prisma;
         this.configService = configService;
         this.diagramService = diagramService;
-        this.CLAUDE_MODEL_MAIN = 'claude-3-haiku-20240307';
-        this.CLAUDE_MODEL_FAST = 'claude-3-haiku-20240307';
+        this.CLAUDE_MODEL_MAIN = 'claude-3-5-haiku-20241022';
+        this.CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';
+        this.MaxTokens = 8192;
         const apiKey = this.configService.get('CLAUDE_API_KEY');
         this.anthropic = new sdk_1.default({
             apiKey: apiKey,
@@ -106,7 +107,7 @@ MULTIPLICIDAD (siempre incluir):
 - "0..1:1..*" = opcional a uno o más`;
             const message = await this.anthropic.messages.create({
                 model: this.CLAUDE_MODEL_MAIN,
-                max_tokens: 4096,
+                max_tokens: this.MaxTokens,
                 messages: [
                     {
                         role: 'user',
@@ -318,7 +319,7 @@ REGLAS:
 7. Posiciona las clases en cuadrícula incrementando x por 300, y por 250`;
                 const claudeVisionMessage = await this.anthropic.messages.create({
                     model: this.CLAUDE_MODEL_MAIN,
-                    max_tokens: 4096,
+                    max_tokens: this.MaxTokens,
                     messages: [
                         {
                             role: 'user',
@@ -527,7 +528,7 @@ Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId
 NOTA: Estudiante hereda de Persona`;
                 const claudeMessage = await this.anthropic.messages.create({
                     model: this.CLAUDE_MODEL_FAST,
-                    max_tokens: 4096,
+                    max_tokens: this.MaxTokens,
                     messages: [
                         {
                             role: 'user',

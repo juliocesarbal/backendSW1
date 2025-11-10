@@ -9,9 +9,10 @@ export class AiChatService {
   private anthropic: Anthropic;
 
   // 🎯 Configuración de modelos de Claude - Cambia aquí para usar otro modelo
-  private readonly CLAUDE_MODEL_MAIN = 'claude-3-haiku-20240307';  // Modelo principal para tareas complejas
-  private readonly CLAUDE_MODEL_FAST = 'claude-3-haiku-20240307';     // Modelo rápido para tareas simples
-  //El modelo principal al momento de la presentancion va a ser  'claude-sonnet-4-5-20250929'
+ private readonly CLAUDE_MODEL_MAIN = 'claude-3-5-haiku-20241022';   // Modelo principal para tareas complejas
+ private readonly CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';   // Modelo rápido / ligero   // Modelo rápido para tareas simples
+ private readonly MaxTokens = 8192;
+ //El modelo principal al momento de la presentancion va a ser  'claude-sonnet-4-5-20250929'
   
   constructor(
     private prisma: PrismaService,
@@ -105,7 +106,7 @@ MULTIPLICIDAD (siempre incluir):
 
       const message = await this.anthropic.messages.create({
         model: this.CLAUDE_MODEL_MAIN,
-        max_tokens: 4096,
+        max_tokens: this.MaxTokens,
         messages: [
           {
             role: 'user',
@@ -349,7 +350,7 @@ REGLAS:
 
         const claudeVisionMessage = await this.anthropic.messages.create({
           model: this.CLAUDE_MODEL_MAIN,
-          max_tokens: 4096,
+          max_tokens: this.MaxTokens,
           messages: [
             {
               role: 'user',
@@ -575,7 +576,7 @@ NOTA: Estudiante hereda de Persona`;
 
         const claudeMessage = await this.anthropic.messages.create({
           model: this.CLAUDE_MODEL_FAST,
-          max_tokens: 4096,
+          max_tokens: this.MaxTokens,
           messages: [
             {
               role: 'user',

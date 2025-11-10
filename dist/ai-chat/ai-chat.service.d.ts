@@ -8,6 +8,7 @@ export declare class AiChatService {
     private anthropic;
     private readonly CLAUDE_MODEL_MAIN;
     private readonly CLAUDE_MODEL_FAST;
+    private readonly MaxTokens;
     constructor(prisma: PrismaService, configService: ConfigService, diagramService: DiagramService);
     generateUMLFromPrompt(prompt: string, diagramId: string, userId: string): Promise<{
         success: boolean;
