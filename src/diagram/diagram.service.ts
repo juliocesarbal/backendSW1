@@ -57,6 +57,21 @@ export class DiagramService {
       throw new ForbiddenException('Access denied to this diagram');
     }
 
+    // Log relations with intermediate tables when loading
+    if (diagram.data && typeof diagram.data === 'object') {
+      const data = diagram.data as any;
+      if (data.relations && Array.isArray(data.relations)) {
+        const relationsWithIntermediate = data.relations.filter((r: any) => r.intermediateTable);
+        if (relationsWithIntermediate.length > 0) {
+          console.log('🔍 Cargando diagrama con tablas intermedias:');
+          relationsWithIntermediate.forEach((r: any) => {
+            console.log(`   - ${r.id}: ${r.sourceClassId} <-> ${r.targetClassId}`);
+            console.log(`     Tabla intermedia:`, r.intermediateTable);
+          });
+        }
+      }
+    }
+
     return diagram;
   }
 
@@ -69,6 +84,18 @@ export class DiagramService {
         classesCount: data?.classes?.length,
         relationsCount: data?.relations?.length
       });
+
+      // Log relations with intermediate tables
+      if (data?.relations && data.relations.length > 0) {
+        const relationsWithIntermediate = data.relations.filter((r: any) => r.intermediateTable);
+        if (relationsWithIntermediate.length > 0) {
+          console.log('🔍 Relaciones con tablas intermedias a guardar:');
+          relationsWithIntermediate.forEach((r: any) => {
+            console.log(`   - ${r.id}: ${r.sourceClassId} <-> ${r.targetClassId}`);
+            console.log(`     Tabla intermedia:`, r.intermediateTable);
+          });
+        }
+      }
 
       // Verify access
       await this.getDiagramById(diagramId, userId);
