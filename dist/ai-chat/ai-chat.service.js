@@ -20,6 +20,8 @@ let AiChatService = class AiChatService {
         this.prisma = prisma;
         this.configService = configService;
         this.diagramService = diagramService;
+        this.CLAUDE_MODEL_MAIN = 'claude-3-haiku-20240307';
+        this.CLAUDE_MODEL_FAST = 'claude-3-haiku-20240307';
         const apiKey = this.configService.get('CLAUDE_API_KEY');
         this.anthropic = new sdk_1.default({
             apiKey: apiKey,
@@ -103,7 +105,7 @@ MULTIPLICIDAD (siempre incluir):
 - "*:*" = muchos a muchos
 - "0..1:1..*" = opcional a uno o más`;
             const message = await this.anthropic.messages.create({
-                model: 'claude-3-haiku-20240307',
+                model: this.CLAUDE_MODEL_MAIN,
                 max_tokens: 4096,
                 messages: [
                     {
@@ -315,7 +317,7 @@ REGLAS:
 6. NO generar métodos - el array "methods" siempre vacío []
 7. Posiciona las clases en cuadrícula incrementando x por 300, y por 250`;
                 const claudeVisionMessage = await this.anthropic.messages.create({
-                    model: 'claude-3-haiku-20240307',
+                    model: this.CLAUDE_MODEL_MAIN,
                     max_tokens: 4096,
                     messages: [
                         {
@@ -524,7 +526,7 @@ Clase Estudiante: { id, matricula, carrera }
 Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId: "cls_persona", multiplicity: "" }
 NOTA: Estudiante hereda de Persona`;
                 const claudeMessage = await this.anthropic.messages.create({
-                    model: 'claude-3-haiku-20240307',
+                    model: this.CLAUDE_MODEL_FAST,
                     max_tokens: 4096,
                     messages: [
                         {
@@ -596,7 +598,7 @@ Si el usuario pregunta sobre su diagrama, analiza el contexto actual.` : 'Sin co
 
 IMPORTANTE: Sé conciso pero informativo en tus respuestas.`;
                 const claudeMessage = await this.anthropic.messages.create({
-                    model: 'claude-3-haiku-20240307',
+                    model: this.CLAUDE_MODEL_FAST,
                     max_tokens: 2048,
                     messages: [
                         {

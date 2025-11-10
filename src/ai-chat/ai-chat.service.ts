@@ -8,6 +8,11 @@ import Anthropic from '@anthropic-ai/sdk';
 export class AiChatService {
   private anthropic: Anthropic;
 
+  // 🎯 Configuración de modelos de Claude - Cambia aquí para usar otro modelo
+  private readonly CLAUDE_MODEL_MAIN = 'claude-3-haiku-20240307';  // Modelo principal para tareas complejas
+  private readonly CLAUDE_MODEL_FAST = 'claude-3-haiku-20240307';     // Modelo rápido para tareas simples
+  //El modelo principal al momento de la presentancion va a ser  'claude-sonnet-4-5-20250929'
+  
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
@@ -99,7 +104,7 @@ MULTIPLICIDAD (siempre incluir):
 - "0..1:1..*" = opcional a uno o más`;
 
       const message = await this.anthropic.messages.create({
-        model: 'claude-3-haiku-20240307',
+        model: this.CLAUDE_MODEL_MAIN,
         max_tokens: 4096,
         messages: [
           {
@@ -343,7 +348,7 @@ REGLAS:
 7. Posiciona las clases en cuadrícula incrementando x por 300, y por 250`;
 
         const claudeVisionMessage = await this.anthropic.messages.create({
-          model: 'claude-3-haiku-20240307',
+          model: this.CLAUDE_MODEL_MAIN,
           max_tokens: 4096,
           messages: [
             {
@@ -569,7 +574,7 @@ Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId
 NOTA: Estudiante hereda de Persona`;
 
         const claudeMessage = await this.anthropic.messages.create({
-          model: 'claude-3-haiku-20240307',
+          model: this.CLAUDE_MODEL_FAST,
           max_tokens: 4096,
           messages: [
             {
@@ -656,7 +661,7 @@ Si el usuario pregunta sobre su diagrama, analiza el contexto actual.` : 'Sin co
 IMPORTANTE: Sé conciso pero informativo en tus respuestas.`;
 
         const claudeMessage = await this.anthropic.messages.create({
-          model: 'claude-3-haiku-20240307',
+          model: this.CLAUDE_MODEL_FAST,
           max_tokens: 2048,
           messages: [
             {

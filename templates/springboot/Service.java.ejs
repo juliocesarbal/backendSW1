@@ -52,8 +52,10 @@ public class <%= className %>Service {
     private <%= className %>DTO toDTO(<%= className %> entity) {
         <%= className %>DTO dto = new <%= className %>DTO();
 <% attributes.forEach(function(attr) { %>
-<% if (!attr.isRelation || attr.relationType === 'MANY_TO_ONE') { %>
+<% if (!attr.isRelation) { %>
         dto.set<%= capitalize(attr.name) %>(entity.get<%= capitalize(attr.name) %>());
+<% } else if (attr.relationType === 'MANY_TO_ONE') { %>
+        dto.set<%= capitalize(attr.name.charAt(0).toLowerCase() + attr.name.slice(1)) %>Id(entity.get<%= capitalize(attr.name) %>() != null ? entity.get<%= capitalize(attr.name) %>().getId() : null);
 <% } %>
 <% }); %>
         return dto;

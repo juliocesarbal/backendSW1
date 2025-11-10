@@ -24,7 +24,8 @@ public class <%= className %>DTO {
 <% if (attr.unique) { %>
     // Unique field: <%= attr.name %>
 <% } %>
-    private <%= attr.isRelation ? idType : attr.type %> <%= attr.name %><% if (attr.isRelation) { %>Id<% } %>;
+<% var fieldName = attr.isRelation ? (attr.name.charAt(0).toLowerCase() + attr.name.slice(1) + 'Id') : attr.name; %>
+    private <%= attr.isRelation ? idType : attr.type %> <%= fieldName %>;
 <% } %>
 <% }); %>
 }

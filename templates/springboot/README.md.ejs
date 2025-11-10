@@ -14,7 +14,8 @@ This project was automatically generated from a UML class diagram and provides a
 - ✅ Global exception handling
 - ✅ Input validation
 - ✅ PostgreSQL database
-- ✅ Docker support
+- ✅ SQL database script
+- ✅ Environment variable configuration
 - ✅ Integration tests
 
 ## 🚀 Getting Started
@@ -23,23 +24,71 @@ This project was automatically generated from a UML class diagram and provides a
 
 - Java 17 or higher
 - Maven 3.6+
-- Docker & Docker Compose (for database)
+- PostgreSQL 12+ installed locally or remotely
 
 ### Installation
 
 1. **Clone or extract the project**
 
-2. **Start the database with Docker**
+2. **Create the database**
+
+**Opción 1: Automática (Recomendado para Windows)**
+
+Ejecuta el script de configuración automática:
 
 ```bash
-docker-compose up -d
+.\setup-database.bat
 ```
 
-This will start:
-- PostgreSQL on port 5432
-- pgAdmin on port 5050 (admin@admin.com / admin)
+Este script:
+- Creará la base de datos `<%= dbName %>`
+- Ejecutará todas las tablas con relaciones
+- Aplicará foreign key constraints
+- Creará índices para mejor rendimiento
 
-3. **Build the project**
+**IMPORTANTE**: Antes de ejecutar, abre `setup-database.bat` y ajusta las credenciales:
+```batch
+set PGPASSWORD=tu_contraseña
+set PGUSER=postgres
+```
+
+**Opción 2: Manual**
+
+Ejecuta el script SQL manualmente:
+
+```bash
+psql -U postgres -f database.sql
+```
+
+O conéctate a PostgreSQL y ejecuta:
+
+```sql
+psql -U postgres
+\i database.sql
+```
+
+3. **Configure environment variables (optional)**
+
+El archivo `.env` ya viene incluido con valores por defecto:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=<%= dbName %>
+DB_USERNAME=postgres
+DB_PASSWORD=postgres
+SERVER_PORT=8080
+JPA_DDL_AUTO=update
+```
+
+**Si necesitas cambiar la contraseña de PostgreSQL**, edita el archivo `.env`:
+
+```bash
+# Cambia DB_PASSWORD según tu configuración
+DB_PASSWORD=tu_contraseña_aqui
+```
+
+4. **Build the project**
 
 ```bash
 mvn clean install
@@ -55,16 +104,20 @@ The API will be available at: `http://localhost:8080`
 
 ## 📡 API Endpoints
 
+**Para ver la documentación completa de todos los endpoints con ejemplos, consulta:** [`Endpoints.md`](./Endpoints.md)
+
+Resumen rápido:
+
 <% classes.forEach(function(cls) { %>
-### <%= cls.name %>
+### <%= cls.className %>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/<%= cls.pluralName %>` | Get all <%= cls.pluralName %> |
-| GET | `/api/<%= cls.pluralName %>/{id}` | Get <%= cls.name %> by ID |
-| POST | `/api/<%= cls.pluralName %>` | Create new <%= cls.name %> |
-| PUT | `/api/<%= cls.pluralName %>/{id}` | Update <%= cls.name %> |
-| DELETE | `/api/<%= cls.pluralName %>/{id}` | Delete <%= cls.name %> |
+| GET | `/api/<%= cls.pluralName %>/{id}` | Get <%= cls.className %> by ID |
+| POST | `/api/<%= cls.pluralName %>` | Create new <%= cls.className %> |
+| PUT | `/api/<%= cls.pluralName %>/{id}` | Update <%= cls.className %> |
+| DELETE | `/api/<%= cls.pluralName %>/{id}` | Delete <%= cls.className %> |
 
 <% }); %>
 
@@ -84,23 +137,25 @@ mvn test -Dtest=<ClassName>ControllerTest
 
 ## 📦 Database
 
-The application uses PostgreSQL. Connection details:
+The application uses PostgreSQL. Default connection details:
 
 - **Host**: localhost:5432
 - **Database**: <%= dbName %>
 - **Username**: postgres
 - **Password**: postgres
 
-### Access pgAdmin
+### Database Setup
 
-1. Open http://localhost:5050
-2. Login with `admin@admin.com` / `admin`
-3. Add server:
-   - Host: postgres
-   - Port: 5432
-   - Database: <%= dbName %>
-   - Username: postgres
-   - Password: postgres
+The `database.sql` script includes:
+- Database creation
+- All table definitions with proper data types
+- Foreign key constraints for relationships
+- Indexes for performance optimization
+- Sample data templates (commented out)
+
+You can customize database credentials by:
+1. Setting environment variables (see `.env.example`)
+2. Editing `application.properties` directly
 
 ## 🛠️ Project Structure
 
@@ -123,12 +178,31 @@ src/
 
 ## 🔧 Configuration
 
+### Option 1: Environment Variables (Recommended)
+
+Set these environment variables:
+
+```bash
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=<%= dbName %>
+export DB_USERNAME=postgres
+export DB_PASSWORD=postgres
+export SERVER_PORT=8080
+```
+
+### Option 2: Edit application.properties
+
 Edit `src/main/resources/application.properties` to configure:
 
 - Database connection
 - Server port
 - JPA settings
 - Logging levels
+
+The application.properties file supports environment variables with defaults:
+- `${DB_HOST:localhost}` - uses DB_HOST env var or defaults to localhost
+- See `.env.example` for all available variables
 
 ## 📝 Example Request
 
@@ -149,20 +223,26 @@ curl http://localhost:8080/api/<%= classes[0].pluralName %>
 curl http://localhost:8080/api/<%= classes[0].pluralName %>/1
 ```
 
-## 🐳 Docker Commands
+## 🗄️ Database Commands
 
 ```bash
-# Start services
-docker-compose up -d
+# Configuración automática (Windows)
+setup-database.bat
 
-# Stop services
-docker-compose down
+# O crear database manualmente
+psql -U postgres -f database.sql
 
-# View logs
-docker-compose logs -f
+# Conectar a la base de datos
+psql -U postgres -d <%= dbName %>
 
-# Restart database
-docker-compose restart postgres
+# Ver tablas
+\dt
+
+# Describir estructura de tabla
+\d table_name
+
+# Eliminar base de datos (¡cuidado!)
+DROP DATABASE <%= dbName %>;
 ```
 
 ## 📚 Technologies Used

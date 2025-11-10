@@ -1,0 +1,132 @@
+<%
+// Helper function to convert Java types to SQL types
+function getSqlType(javaType) {
+    const typeMap = {
+        'Long': 'BIGINT',
+        'Integer': 'INTEGER',
+        'String': 'VARCHAR(255)',
+        'Boolean': 'BOOLEAN',
+        'Double': 'DOUBLE PRECISION',
+        'Float': 'REAL',
+        'BigDecimal': 'DECIMAL(19,2)',
+        'LocalDate': 'DATE',
+        'LocalDateTime': 'TIMESTAMP',
+        'LocalTime': 'TIME',
+        'Instant': 'TIMESTAMP',
+        'Date': 'TIMESTAMP',
+        'byte[]': 'BYTEA',
+        'Byte[]': 'BYTEA'
+    };
+    return typeMap[javaType] || 'VARCHAR(255)';
+}
+
+// Create a reversed copy for dropping tables (don't mutate original)
+const reversedClasses = [...classes].reverse();
+%>
+-- =====================================================
+-- Database Creation Script
+-- Project: <%= projectName %>
+-- Database: <%= dbName %>
+-- Generated from UML Diagram
+-- =====================================================
+
+-- Create database (run this separately as postgres superuser if needed)
+-- CREATE DATABASE <%= dbName %>;
+
+-- Connect to the database
+\c <%= dbName %>;
+
+-- =====================================================
+-- Drop existing tables (in reverse order due to foreign keys)
+-- =====================================================
+
+<% reversedClasses.forEach(function(cls) { %>
+DROP TABLE IF EXISTS <%= cls.tableName %> CASCADE;
+<% }); %>
+
+-- =====================================================
+-- Create tables
+-- =====================================================
+
+<% classes.forEach(function(cls) { %>
+-- Table: <%= cls.tableName %>
+CREATE TABLE <%= cls.tableName %> (
+<% cls.attributes.forEach(function(attr, index) { %>
+<% if (!attr.isRelation || (attr.isRelation && attr.relationType === 'MANY_TO_ONE')) { %>
+    <%= attr.columnName %> <%= attr.isRelation && attr.relationType === 'MANY_TO_ONE' ? 'BIGINT' : getSqlType(attr.type) %><% if (attr.isId) { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% } else { %><% if (!attr.nullable) { %> NOT NULL<% } %><% if (attr.unique) { %> UNIQUE<% } %><% } %><% if (index < cls.attributes.filter(a => !a.isRelation || a.relationType === 'MANY_TO_ONE').length - 1) { %>,<% } %>
+<% } %>
+<% }); %>
+);
+
+<% }); %>
+
+-- =====================================================
+-- Create foreign key constraints
+-- =====================================================
+
+<% classes.forEach(function(cls) { %>
+<% cls.attributes.forEach(function(attr) { %>
+<% if (attr.isRelation && attr.relationType === 'MANY_TO_ONE' && attr.foreignKey) { %>
+ALTER TABLE <%= cls.tableName %>
+    ADD CONSTRAINT fk_<%= cls.tableName %>_<%= attr.foreignKey.referencedTable %>
+    FOREIGN KEY (<%= attr.columnName %>)
+    REFERENCES <%= attr.foreignKey.referencedTable %>(id)
+    ON DELETE <%= attr.foreignKey.onDelete || 'CASCADE' %>
+    ON UPDATE <%= attr.foreignKey.onUpdate || 'CASCADE' %>;
+
+<% } %>
+<% }); %>
+<% }); %>
+
+-- =====================================================
+-- Create indexes for foreign keys
+-- =====================================================
+
+<% classes.forEach(function(cls) { %>
+<% cls.attributes.forEach(function(attr) { %>
+<% if (attr.isRelation && attr.relationType === 'MANY_TO_ONE') { %>
+CREATE INDEX idx_<%= cls.tableName %>_<%= attr.columnName %>
+    ON <%= cls.tableName %>(<%= attr.columnName %>);
+
+<% } %>
+<% }); %>
+<% }); %>
+
+-- =====================================================
+-- Create junction tables for Many-to-Many relationships
+-- =====================================================
+
+<% classes.forEach(function(cls) { %>
+<% cls.attributes.forEach(function(attr) { %>
+<% if (attr.isRelation && attr.relationType === 'MANY_TO_MANY' && attr.joinTable) { %>
+CREATE TABLE IF NOT EXISTS <%= attr.joinTable %> (
+    <%= attr.joinColumn %> BIGINT NOT NULL,
+    <%= attr.inverseJoinColumn %> BIGINT NOT NULL,
+    PRIMARY KEY (<%= attr.joinColumn %>, <%= attr.inverseJoinColumn %>),
+    FOREIGN KEY (<%= attr.joinColumn %>) REFERENCES <%= cls.tableName %>(id) ON DELETE CASCADE,
+    FOREIGN KEY (<%= attr.inverseJoinColumn %>) REFERENCES <%= attr.foreignKey.referencedTable %>(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_<%= attr.joinTable %>_<%= attr.joinColumn %>
+    ON <%= attr.joinTable %>(<%= attr.joinColumn %>);
+
+CREATE INDEX idx_<%= attr.joinTable %>_<%= attr.inverseJoinColumn %>
+    ON <%= attr.joinTable %>(<%= attr.inverseJoinColumn %>);
+
+<% } %>
+<% }); %>
+<% }); %>
+
+-- =====================================================
+-- Insert sample data (optional - uncomment to use)
+-- =====================================================
+
+-- Example:
+-- INSERT INTO your_table (column1, column2) VALUES ('value1', 'value2');
+
+-- =====================================================
+-- Grant permissions (optional - adjust as needed)
+-- =====================================================
+
+-- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO your_user;
+-- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO your_user;

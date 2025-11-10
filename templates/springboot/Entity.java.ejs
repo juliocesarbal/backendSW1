@@ -46,6 +46,6 @@ public class <%= className %> {
 <% } else { %>
     @Column(name = "<%= attr.columnName %>"<% if (!attr.nullable) { %>, nullable = false<% } %><% if (attr.unique) { %>, unique = true<% } %><% if (attr.length) { %>, length = <%= attr.length %><% } %>)
 <% } %>
-    private <%= attr.type %> <%= attr.name %>;
+    private <%- attr.type %> <%= attr.name %>;
 <% }); %>
 }
