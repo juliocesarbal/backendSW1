@@ -20,7 +20,7 @@ let AiChatService = class AiChatService {
         this.prisma = prisma;
         this.configService = configService;
         this.diagramService = diagramService;
-        this.CLAUDE_MODEL_MAIN = 'claude-3-5-haiku-20241022';
+        this.CLAUDE_MODEL_MAIN = 'claude-sonnet-4-5-20250929';
         this.CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';
         this.MaxTokens = 8192;
         const apiKey = this.configService.get('CLAUDE_API_KEY');
@@ -65,7 +65,10 @@ El JSON debe seguir exactamente esta estructura:
       "targetClassId": "cls_clase2",
       "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToOne|OneToMany|ManyToOne|ManyToMany",
       "name": "nombreRelacion",
-      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
+      "multiplicity": {
+        "source": "1|0..1|1..*|*|0..*",
+        "target": "1|0..1|1..*|*|0..*"
+      }
     }
   ]
 }
@@ -100,11 +103,29 @@ GENERACIÓN DE FOREIGN KEYS (FK):
 - Para relaciones COMPOSITION: agregar FK con nullable=false
 - El nombre del FK debe ser: nombreClaseReferenciadaId (ejemplo: "estudianteId", "cursoId")
 
-MULTIPLICIDAD (siempre incluir):
-- "1:1" = uno a uno
-- "1:*" = uno a muchos
-- "*:*" = muchos a muchos
-- "0..1:1..*" = opcional a uno o más`;
+MULTIPLICIDAD (FORMATO OBJETO - IMPORTANTE):
+La multiplicidad debe ser un objeto con "source" y "target":
+- { "source": "1", "target": "1" } = uno a uno
+- { "source": "1", "target": "*" } = uno a muchos
+- { "source": "*", "target": "1" } = muchos a uno
+- { "source": "*", "target": "*" } = muchos a muchos
+- { "source": "0..1", "target": "1..*" } = opcional a uno o más
+- { "source": "1..*", "target": "1" } = uno o más a uno
+
+RELACIONES MUCHOS A MUCHOS (N:N):
+Cuando detectes una relación muchos a muchos (source="*" y target="*"):
+- Usa type: "ManyToMany" o "ASSOCIATION"
+- IMPORTANTE: Establece multiplicity: { "source": "*", "target": "*" }
+- El sistema automáticamente creará una tabla intermedia con nombre: clase1_clase2
+- La tabla intermedia contendrá FKs a ambas clases
+- Ejemplos de N:N: Estudiante-Curso, Producto-Categoria, Actor-Pelicula
+
+CASOS COMUNES DE N:N:
+- FARMACIA: Medicamento <-> Proveedor (un medicamento puede tener varios proveedores)
+- RESTAURANTE: Plato <-> Ingrediente (un plato tiene varios ingredientes)
+- HOSPITAL: Doctor <-> Especialidad (un doctor puede tener varias especialidades)
+- ESCUELA: Estudiante <-> Curso (un estudiante toma varios cursos)
+- COMERCIO: Producto <-> Categoria (un producto puede estar en varias categorías)`;
             const message = await this.anthropic.messages.create({
                 model: this.CLAUDE_MODEL_MAIN,
                 max_tokens: this.MaxTokens,
@@ -239,6 +260,107 @@ MULTIPLICIDAD (siempre incluir):
             }
             return cls;
         });
+        const intermediateTableCandidates = new Set();
+        const relationsToRemove = new Set();
+        const newRelations = [];
+        model.classes.forEach((cls) => {
+            const clsName = cls.name.toLowerCase();
+            if (clsName.includes('_') || clsName.includes('detalle')) {
+                const relationsFrom = model.relations.filter((r) => r.sourceClassId === cls.id);
+                const relationsTo = model.relations.filter((r) => r.targetClassId === cls.id);
+                if (relationsFrom.length + relationsTo.length >= 2) {
+                    console.log(`🔍 Potential intermediate table detected: ${cls.name}`);
+                    intermediateTableCandidates.add(cls.id);
+                }
+            }
+        });
+        intermediateTableCandidates.forEach(intermediateId => {
+            const intermediateCls = model.classes.find((c) => c.id === intermediateId);
+            if (!intermediateCls)
+                return;
+            const connectingRelations = model.relations.filter((r) => r.sourceClassId === intermediateId || r.targetClassId === intermediateId);
+            if (connectingRelations.length === 2) {
+                const rel1 = connectingRelations[0];
+                const rel2 = connectingRelations[1];
+                let mainClass1Id, mainClass2Id;
+                if (rel1.targetClassId === intermediateId) {
+                    mainClass1Id = rel1.sourceClassId;
+                }
+                else {
+                    mainClass1Id = rel1.targetClassId;
+                }
+                if (rel2.targetClassId === intermediateId) {
+                    mainClass2Id = rel2.sourceClassId;
+                }
+                else {
+                    mainClass2Id = rel2.targetClassId;
+                }
+                if (mainClass1Id && mainClass2Id && mainClass1Id !== mainClass2Id) {
+                    console.log(`✨ Converting to N:N: ${mainClass1Id} <-> ${mainClass2Id} via ${intermediateCls.name}`);
+                    const newRelation = {
+                        id: `rel_nn_${mainClass1Id}_${mainClass2Id}`,
+                        sourceClassId: mainClass1Id,
+                        targetClassId: mainClass2Id,
+                        type: 'ManyToMany',
+                        name: '',
+                        multiplicity: {
+                            source: '*',
+                            target: '*'
+                        },
+                        intermediateTable: {
+                            id: intermediateId,
+                            name: intermediateCls.name,
+                            attributes: intermediateCls.attributes?.map((attr) => `${attr.name}: ${attr.type}${attr.stereotype ? ' [' + attr.stereotype.toUpperCase() + ']' : ''}`) || []
+                        }
+                    };
+                    newRelations.push(newRelation);
+                    relationsToRemove.add(rel1.id);
+                    relationsToRemove.add(rel2.id);
+                    intermediateCls._isIntermediateTable = true;
+                }
+            }
+        });
+        model.relations = model.relations.filter((r) => !relationsToRemove.has(r.id));
+        model.relations.push(...newRelations);
+        model.classes = model.classes.filter((c) => !c._isIntermediateTable);
+        model.relations = model.relations.map((rel, index) => {
+            if (!rel.id)
+                rel.id = `rel_${index + 1}`;
+            if (!rel.type)
+                rel.type = 'ASSOCIATION';
+            if (!rel.name)
+                rel.name = 'relation';
+            if (rel.multiplicity) {
+                if (typeof rel.multiplicity === 'string') {
+                    const parts = rel.multiplicity.split(':');
+                    rel.multiplicity = {
+                        source: parts[0] || '',
+                        target: parts[1] || ''
+                    };
+                    console.log(`🔄 Converted multiplicity string "${parts[0] || 'empty'}:${parts[1] || 'empty'}" to object`);
+                }
+                else if (typeof rel.multiplicity === 'object') {
+                    if (rel.multiplicity.source === undefined || rel.multiplicity.source === null) {
+                        rel.multiplicity.source = '';
+                    }
+                    if (rel.multiplicity.target === undefined || rel.multiplicity.target === null) {
+                        rel.multiplicity.target = '';
+                    }
+                }
+            }
+            else {
+                rel.multiplicity = { source: '', target: '' };
+            }
+            const isSourceMany = rel.multiplicity.source.includes('*') || rel.multiplicity.source === '*';
+            const isTargetMany = rel.multiplicity.target.includes('*') || rel.multiplicity.target === '*';
+            if (isSourceMany && isTargetMany) {
+                console.log(`🔗 Detected many-to-many relationship: ${rel.sourceClassId} <-> ${rel.targetClassId}`);
+                if (rel.type === 'ASSOCIATION') {
+                    rel.type = 'ManyToMany';
+                }
+            }
+            return rel;
+        });
         return model;
     }
     generateFallbackModel(prompt) {
@@ -265,28 +387,38 @@ MULTIPLICIDAD (siempre incluir):
                 }
                 const mediaType = `image/${base64Match[1]}`;
                 const base64Data = base64Match[2];
-                const visionPrompt = `Analiza esta imagen que contiene un diagrama de clases UML y extrae TODA la información para recrearlo exactamente.
+                const visionPrompt = `You are an expert in UML diagrams. Analyze this image VERY CAREFULLY and extract ALL information.
 
-IMPORTANTE: Devuelve SOLAMENTE JSON válido sin formato markdown, bloques de código o texto adicional.
+CRITICAL - MULTIPLICITY:
+On each relationship line, look for small numbers at BOTH ends:
+- A number near the START of the line
+- A number near the END of the line
+These numbers can be: 1, *, 0..1, 1..*, 0..*, 1..1
 
-Extrae:
-- Todas las clases con sus nombres exactos
-- Todos los atributos de cada clase con: nombre, tipo, visibilidad
-- Todas las relaciones entre clases con: tipo de relación, multiplicidad
-- Posiciones aproximadas de las clases (distribúyelas en cuadrícula)
+STEP BY STEP PROCESS:
+1. FIRST: Identify each relationship line in the image
+2. SECOND: For EACH line, look VERY CAREFULLY for numbers at BOTH ends
+3. THIRD: Extract classes and their attributes
+4. FOURTH: Generate the JSON
 
-El JSON debe seguir exactamente esta estructura:
+IMPORTANT:
+- Return ONLY valid JSON (without triple backticks or additional text)
+- If you see a small table IN THE MIDDLE of a dashed line, it is an intermediate table for N:N relationship
+- Intermediate table has name like: class1_class2
+- NEVER invent multiplicity, ALWAYS look for it in the image
+
+The JSON must follow exactly this structure:
 {
-  "name": "Nombre del Sistema extraído de la imagen",
+  "name": "System Name extracted from image",
   "classes": [
     {
-      "id": "cls_nombreclase",
-      "name": "NombreClase",
+      "id": "cls_classname",
+      "name": "ClassName",
       "position": { "x": 100, "y": 100 },
       "attributes": [
         {
           "id": "attr_1",
-          "name": "nombreAtributo",
+          "name": "attributeName",
           "type": "String|Long|Integer|BigDecimal|LocalDate|LocalDateTime|Boolean",
           "stereotype": "id|fk",
           "nullable": false,
@@ -300,23 +432,43 @@ El JSON debe seguir exactamente esta estructura:
   "relations": [
     {
       "id": "rel_1",
-      "sourceClassId": "cls_clase1",
-      "targetClassId": "cls_clase2",
+      "sourceClassId": "cls_class1",
+      "targetClassId": "cls_class2",
       "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToMany|ManyToOne|ManyToMany",
-      "name": "nombreRelacion",
-      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
+      "name": "relationName",
+      "multiplicity": {
+        "source": "1|0..1|1..*|*|0..*",
+        "target": "1|0..1|1..*|*|0..*"
+      }
     }
   ]
 }
 
-REGLAS:
-1. Cada clase DEBE tener un atributo "id" como primer atributo
-2. Si ves Foreign Keys en la imagen, márcalos con stereotype="fk"
-3. Respeta los nombres exactos que ves en la imagen
-4. Identifica correctamente los tipos de relaciones por las flechas/líneas
-5. Extrae la multiplicidad si está visible (1, *, 0..1, 1..*, etc.)
-6. NO generar métodos - el array "methods" siempre vacío []
-7. Posiciona las clases en cuadrícula incrementando x por 300, y por 250`;
+CRITICAL RULES:
+1. Each class MUST have an "id" attribute as first attribute
+2. If you see Foreign Keys in the image, mark them with stereotype="fk"
+3. Respect exact names you see in the image
+4. Correctly identify relationship types by arrows/lines
+5. MULTIPLICITY IS THE MOST IMPORTANT - Look for small numbers at both ends of each line:
+   - At the START of the line (near source class) = "source"
+   - At the END of the line (near target class) = "target"
+   - Examples: "1", "*", "0..1", "1..*", "0..*", "*..1"
+6. MULTIPLICITY must be object: { "source": "value_at_start", "target": "value_at_end" }
+7. If you DO NOT see visible multiplicity in the image, DO NOT invent, use: { "source": "", "target": "" }
+8. If you see dashed lines (- - - -), it is probably many-to-many: { "source": "*", "target": "*" }
+9. If you see a small table IN THE MIDDLE of a dashed line, it is N:N relationship with intermediate table
+10. For N:N intermediate tables: Table usually has name: class1_class2 or similar
+11. DO NOT generate methods - the "methods" array always empty []
+12. Position classes in grid incrementing x by 300, y by 250
+
+VISUAL EXAMPLE OF MULTIPLICITY:
+If in the image you see: [ClassA] ---1-------*--- [ClassB]
+Then the relationship must have: { "source": "1", "target": "*" }
+
+If you see: [Producto] ---*---- [producto_catalogo] ----*--- [Catalogo]
+These are TWO separate relationships:
+  Relationship 1: Producto to producto_catalogo with { "source": "*", "target": "1" }
+  Relationship 2: producto_catalogo to Catalogo with { "source": "1", "target": "*" }`;
                 const claudeVisionMessage = await this.anthropic.messages.create({
                     model: this.CLAUDE_MODEL_MAIN,
                     max_tokens: this.MaxTokens,
@@ -344,7 +496,11 @@ REGLAS:
                     throw new Error('Invalid response from Claude Vision API');
                 }
                 const visionText = claudeVisionMessage.content[0].type === 'text' ? claudeVisionMessage.content[0].text : '';
-                console.log('📝 Respuesta de Claude Vision:', visionText.substring(0, 200));
+                console.log('\n═══════════════════════════════════════════════════════');
+                console.log('📝 RESPUESTA COMPLETA DE CLAUDE VISION:');
+                console.log('═══════════════════════════════════════════════════════');
+                console.log(visionText);
+                console.log('═══════════════════════════════════════════════════════\n');
                 let cleanedResponse = visionText.trim();
                 if (cleanedResponse.startsWith('```json')) {
                     cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
@@ -360,12 +516,49 @@ REGLAS:
                 try {
                     umlModel = JSON.parse(cleanedResponse);
                     console.log('✅ Diagrama extraído de imagen. Clases:', umlModel.classes?.length);
+                    console.log('\n═══════════════════════════════════════════════════════');
+                    console.log('🔍 MODELO JSON PARSEADO COMPLETO:');
+                    console.log('═══════════════════════════════════════════════════════');
+                    console.log(JSON.stringify(umlModel, null, 2));
+                    console.log('═══════════════════════════════════════════════════════\n');
+                    if (umlModel.relations && umlModel.relations.length > 0) {
+                        console.log('🔗 MULTIPLICIDADES EXTRAÍDAS DE LA IMAGEN (RAW):');
+                        umlModel.relations.forEach((rel, idx) => {
+                            console.log(`  Relación ${idx + 1}: ${rel.sourceClassId} -> ${rel.targetClassId}`);
+                            console.log(`    Tipo: ${rel.type}`);
+                            console.log(`    Multiplicidad RAW:`, rel.multiplicity);
+                            console.log(`    Tipo de multiplicidad: ${typeof rel.multiplicity}`);
+                            if (typeof rel.multiplicity === 'object' && rel.multiplicity) {
+                                console.log(`      - source: "${rel.multiplicity.source}"`);
+                                console.log(`      - target: "${rel.multiplicity.target}"`);
+                            }
+                            console.log('');
+                        });
+                    }
                 }
                 catch (parseError) {
                     console.error('❌ Error parseando JSON de imagen:', parseError.message);
+                    console.error('Contenido que intentó parsear:', cleanedResponse?.substring(0, 500));
                     throw new Error('No se pudo extraer el diagrama de la imagen. Intenta con una imagen más clara.');
                 }
                 umlModel = this.validateAndFixModel(umlModel);
+                console.log('\n═══════════════════════════════════════════════════════');
+                console.log('✅ MODELO DESPUÉS DE VALIDACIÓN:');
+                console.log('═══════════════════════════════════════════════════════');
+                if (umlModel.relations && umlModel.relations.length > 0) {
+                    console.log('🔗 MULTIPLICIDADES DESPUÉS DE validateAndFixModel:');
+                    umlModel.relations.forEach((rel, idx) => {
+                        console.log(`  Relación ${idx + 1}: ${rel.sourceClassId} -> ${rel.targetClassId}`);
+                        console.log(`    Tipo: ${rel.type}`);
+                        console.log(`    Multiplicidad VALIDADA:`, rel.multiplicity);
+                        if (typeof rel.multiplicity === 'object' && rel.multiplicity) {
+                            console.log(`      - source: "${rel.multiplicity.source}"`);
+                            console.log(`      - target: "${rel.multiplicity.target}"`);
+                        }
+                        console.log('');
+                    });
+                }
+                console.log('═══════════════════════════════════════════════════════\n');
                 await this.prisma.diagramActivity.create({
                     data: {
                         action: 'AI_IMAGE_ANALYSIS',
@@ -459,7 +652,10 @@ El JSON debe seguir exactamente esta estructura:
       "targetClassId": "cls_clase2",
       "type": "ASSOCIATION|AGGREGATION|COMPOSITION|INHERITANCE|DEPENDENCY|OneToOne|OneToMany|ManyToOne|ManyToMany",
       "name": "nombreRelacion",
-      "multiplicity": "1:1|1:*|*:*|0..1:1..*"
+      "multiplicity": {
+        "source": "1|0..1|1..*|*|0..*",
+        "target": "1|0..1|1..*|*|0..*"
+      }
     }
   ]
 }
@@ -480,7 +676,7 @@ TIPOS DE RELACIONES Y CUANDO USARLAS:
 - INHERITANCE: Herencia entre clases (ejemplo: Persona → Estudiante, Profesor)
 - DEPENDENCY: Una clase usa a otra temporalmente
 - OneToMany/ManyToOne: Relaciones de cardinalidad específica
-- ManyToMany: Relaciones muchos a muchos
+- ManyToMany: Relaciones muchos a muchos (líneas discontinuas en el diagrama)
 
 GENERACIÓN DE FOREIGN KEYS (FK):
 - Para relaciones OneToMany: agregar FK en el lado "many" (ejemplo: Estudiante 1:N Nota → Nota tiene "estudianteId" con stereotype="fk")
@@ -490,12 +686,12 @@ GENERACIÓN DE FOREIGN KEYS (FK):
 - FK siempre deben tener: type="Long", stereotype="fk", unique=false
 - El nombre del FK debe ser: nombreClaseReferenciadaId (ejemplo: "estudianteId", "cursoId", "pedidoId")
 
-MULTIPLICIDAD:
-- Formato: "multiplicidadSource:multiplicidadTarget"
-- "1:1" = uno a uno
-- "1:*" = uno a muchos
-- "*:*" = muchos a muchos
-- "0..1:1..*" = opcional a uno o más
+MULTIPLICIDAD (FORMATO OBJETO):
+- Formato: { "source": "valor", "target": "valor" }
+- { "source": "1", "target": "1" } = uno a uno
+- { "source": "1", "target": "*" } = uno a muchos
+- { "source": "*", "target": "*" } = muchos a muchos (se creará tabla intermedia automáticamente)
+- { "source": "0..1", "target": "1..*" } = opcional a uno o más
 - Siempre incluir multiplicidad en las relaciones
 
 EJEMPLOS CONCRETOS:
@@ -503,29 +699,35 @@ EJEMPLOS CONCRETOS:
 EJEMPLO 1 - ESTUDIANTE Y NOTA (1:N con AGGREGATION):
 Clase Estudiante: { id, nombre, email } - sin FK
 Clase Nota: { id, valor, materia, estudianteId (stereotype="fk", type="Long") }
-Relación: { type: "AGGREGATION", sourceClassId: "cls_estudiante", targetClassId: "cls_nota", multiplicity: "1:*" }
+Relación: { type: "AGGREGATION", sourceClassId: "cls_estudiante", targetClassId: "cls_nota", multiplicity: { "source": "1", "target": "*" } }
 
 EJEMPLO 2 - ESTUDIANTE Y CURSO (N:M con ASSOCIATION):
 Clase Estudiante: { id, nombre, email } - sin FK directo
 Clase Curso: { id, nombre, creditos } - sin FK directo
-Relación: { type: "ASSOCIATION", sourceClassId: "cls_estudiante", targetClassId: "cls_curso", multiplicity: "*:*" }
-NOTA: En implementación real requeriría tabla intermedia
+Relación: { type: "ManyToMany", sourceClassId: "cls_estudiante", targetClassId: "cls_curso", multiplicity: { "source": "*", "target": "*" } }
+NOTA: Se creará automáticamente tabla intermedia estudiante_curso con FKs
 
 EJEMPLO 3 - PEDIDO Y LINEA PEDIDO (1:N con COMPOSITION):
 Clase Pedido: { id, fecha, total } - sin FK
 Clase LineaPedido: { id, cantidad, precioUnitario, pedidoId (stereotype="fk", type="Long", nullable=false) }
-Relación: { type: "COMPOSITION", sourceClassId: "cls_pedido", targetClassId: "cls_lineapedido", multiplicity: "1:*" }
+Relación: { type: "COMPOSITION", sourceClassId: "cls_pedido", targetClassId: "cls_lineapedido", multiplicity: { "source": "1", "target": "*" } }
 
 EJEMPLO 4 - DEPARTAMENTO Y EMPLEADO (1:N con AGGREGATION):
 Clase Departamento: { id, nombre } - sin FK
 Clase Empleado: { id, nombre, salario, departamentoId (stereotype="fk", type="Long") }
-Relación: { type: "AGGREGATION", sourceClassId: "cls_departamento", targetClassId: "cls_empleado", multiplicity: "1:*" }
+Relación: { type: "AGGREGATION", sourceClassId: "cls_departamento", targetClassId: "cls_empleado", multiplicity: { "source": "1", "target": "*" } }
 
 EJEMPLO 5 - PERSONA Y ESTUDIANTE (HERENCIA):
 Clase Persona: { id, nombre, dni }
 Clase Estudiante: { id, matricula, carrera }
-Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId: "cls_persona", multiplicity: "" }
-NOTA: Estudiante hereda de Persona`;
+Relación: { type: "INHERITANCE", sourceClassId: "cls_estudiante", targetClassId: "cls_persona", multiplicity: { "source": "", "target": "" } }
+NOTA: Estudiante hereda de Persona
+
+EJEMPLO 6 - PRODUCTO Y CATEGORIA (N:M):
+Clase Producto: { id, nombre, precio } - sin FK directo
+Clase Categoria: { id, nombre, descripcion } - sin FK directo
+Relación: { type: "ManyToMany", sourceClassId: "cls_producto", targetClassId: "cls_categoria", multiplicity: { "source": "*", "target": "*" } }
+NOTA: El sistema creará automáticamente la tabla producto_categoria`;
                 const claudeMessage = await this.anthropic.messages.create({
                     model: this.CLAUDE_MODEL_FAST,
                     max_tokens: this.MaxTokens,
