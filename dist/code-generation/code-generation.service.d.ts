@@ -9,6 +9,13 @@ export declare class CodeGenerationService {
         generatedCodeId: string;
         message: string;
     }>;
+    generateFlutterProject(diagramId: string, userId: string): Promise<{
+        success: boolean;
+        projectPath: string;
+        zipPath: string;
+        generatedCodeId: string;
+        message: string;
+    }>;
     private validateAndNormalizeDiagram;
     private transformClasses;
     private transformAttributes;
@@ -38,4 +45,7 @@ export declare class CodeGenerationService {
         generatedAt: Date;
         generatedBy: string;
     })[]>;
+    private createFlutterProjectStructure;
+    private generateFlutterFromTemplates;
+    private generateFlutterClassFiles;
 }

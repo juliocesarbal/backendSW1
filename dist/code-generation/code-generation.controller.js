@@ -56,6 +56,18 @@ let CodeGenerationController = class CodeGenerationController {
             });
         }
     }
+    async generateFlutter(diagramId, req, res) {
+        try {
+            const result = await this.codeGenerationService.generateFlutterProject(diagramId, req.user.userId);
+            res.json(result);
+        }
+        catch (error) {
+            res.status(500).json({
+                success: false,
+                error: error.message,
+            });
+        }
+    }
     async getGeneratedProjects(req, res) {
         try {
             const projects = await this.codeGenerationService.getGeneratedProjects(req.user.userId);
@@ -91,6 +103,15 @@ __decorate([
     __metadata("design:paramtypes", [String, Object, Object]),
     __metadata("design:returntype", Promise)
 ], CodeGenerationController.prototype, "downloadProject", null);
+__decorate([
+    (0, common_1.Post)('flutter/:diagramId'),
+    __param(0, (0, common_1.Param)('diagramId')),
+    __param(1, (0, common_1.Request)()),
+    __param(2, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, Object]),
+    __metadata("design:returntype", Promise)
+], CodeGenerationController.prototype, "generateFlutter", null);
 __decorate([
     (0, common_1.Get)('projects'),
     __param(0, (0, common_1.Request)()),

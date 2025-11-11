@@ -196,6 +196,7 @@ model DiagramActivity {
 
 enum ProjectType {
   SPRING_BOOT
+  FLUTTER
   NODE_EXPRESS
   DJANGO
   LARAVEL

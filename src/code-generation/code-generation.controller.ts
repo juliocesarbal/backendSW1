@@ -61,6 +61,27 @@ export class CodeGenerationController {
     }
   }
 
+  @Post('flutter/:diagramId')
+  async generateFlutter(
+    @Param('diagramId') diagramId: string,
+    @Request() req,
+    @Res() res: Response,
+  ) {
+    try {
+      const result = await this.codeGenerationService.generateFlutterProject(
+        diagramId,
+        req.user.userId,
+      );
+
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message,
+      });
+    }
+  }
+
   @Get('projects')
   async getGeneratedProjects(@Request() req, @Res() res: Response) {
     try {

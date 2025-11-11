@@ -1,4 +1,11 @@
-package <%= basePackage %>.service;
+<%
+// Helper function to convert field names to camelCase (Java convention)
+function toCamelCase(str) {
+  if (!str) return str;
+  // Convert first character to lowercase
+  return str.charAt(0).toLowerCase() + str.slice(1);
+}
+%>package <%= basePackage %>.service;
 
 import <%= basePackage %>.entity.<%= className %>;
 import <%= basePackage %>.repository.<%= className %>Repository;
@@ -53,10 +60,10 @@ public class <%= className %>Service {
         <%= className %>DTO dto = new <%= className %>DTO();
 <% attributes.forEach(function(attr) { %>
 <% if (!attr.isRelation) { %>
-        dto.set<%= capitalize(attr.name) %>(entity.get<%= capitalize(attr.name) %>());
+        dto.set<%= capitalize(toCamelCase(attr.name)) %>(entity.get<%= capitalize(toCamelCase(attr.name)) %>());
 <% } else if (attr.relationType === 'MANY_TO_ONE' || (attr.relationType === 'ONE_TO_ONE' && attr.foreignKey)) { %>
-        if (entity.get<%= capitalize(attr.name) %>() != null) {
-            dto.set<%= capitalize(attr.name) %>Id(entity.get<%= capitalize(attr.name) %>().getId());
+        if (entity.get<%= capitalize(toCamelCase(attr.name)) %>() != null) {
+            dto.set<%= capitalize(toCamelCase(attr.name)) %>Id(entity.get<%= capitalize(toCamelCase(attr.name)) %>().getId());
         }
 <% } %>
 <% }); %>
@@ -67,7 +74,7 @@ public class <%= className %>Service {
         <%= className %> entity = new <%= className %>();
 <% attributes.forEach(function(attr) { %>
 <% if (!attr.isRelation) { %>
-        entity.set<%= capitalize(attr.name) %>(dto.get<%= capitalize(attr.name) %>());
+        entity.set<%= capitalize(toCamelCase(attr.name)) %>(dto.get<%= capitalize(toCamelCase(attr.name)) %>());
 <% } %>
 <% }); %>
         return entity;
@@ -76,7 +83,7 @@ public class <%= className %>Service {
     private void updateEntityFromDTO(<%= className %> entity, <%= className %>DTO dto) {
 <% attributes.forEach(function(attr) { %>
 <% if (!attr.isId && !attr.isRelation) { %>
-        entity.set<%= capitalize(attr.name) %>(dto.get<%= capitalize(attr.name) %>());
+        entity.set<%= capitalize(toCamelCase(attr.name)) %>(dto.get<%= capitalize(toCamelCase(attr.name)) %>());
 <% } %>
 <% }); %>
     }

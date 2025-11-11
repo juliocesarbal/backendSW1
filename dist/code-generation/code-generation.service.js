@@ -82,6 +82,61 @@ let CodeGenerationService = class CodeGenerationService {
             throw new Error(`Failed to generate Spring Boot project: ${error.message}`);
         }
     }
+    async generateFlutterProject(diagramId, userId) {
+        console.log(`📱 Generating Flutter project for diagram: ${diagramId}`);
+        const diagram = await this.prisma.retryQuery(() => this.prisma.diagram.findUnique({
+            where: { id: diagramId },
+        }));
+        if (!diagram) {
+            throw new common_1.BadRequestException('Diagram not found');
+        }
+        const diagramData = diagram.data;
+        const classes = diagramData.classes || [];
+        const relations = diagramData.relations || [];
+        console.log(`📊 Diagram found: ${diagram.name}`);
+        console.log(`📦 Classes count: ${classes.length}`);
+        console.log(`🔗 Relations count: ${relations.length}`);
+        this.validateAndNormalizeDiagram(classes);
+        const projectName = diagram.name.toLowerCase().replace(/\s+/g, '-');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const projectPath = `./generated-projects/${projectName}-flutter-${timestamp}`;
+        console.log(`📁 Flutter project path: ${projectPath}`);
+        try {
+            await this.createFlutterProjectStructure(projectPath, projectName);
+            console.log('✅ Flutter project structure created');
+            const transformedClasses = this.transformClasses(classes, relations);
+            console.log(`✅ Transformed ${transformedClasses.length} classes`);
+            await this.generateFlutterFromTemplates(projectPath, {
+                projectName,
+                classes: transformedClasses,
+                relations,
+            });
+            console.log('✅ Flutter files generated from templates');
+            const zipPath = `${projectPath}.zip`;
+            await this.createZipFile(projectPath, zipPath);
+            console.log(`✅ Flutter ZIP file created: ${zipPath}`);
+            const generatedCode = await this.prisma.retryQuery(() => this.prisma.generatedCode.create({
+                data: {
+                    projectType: client_1.ProjectType.FLUTTER,
+                    zipPath: zipPath,
+                    diagramId,
+                    generatedBy: userId,
+                },
+            }));
+            return {
+                success: true,
+                projectPath,
+                zipPath,
+                generatedCodeId: generatedCode.id,
+                message: 'Flutter project generated successfully with CRUD screens',
+            };
+        }
+        catch (error) {
+            console.error('❌ Error generating Flutter project:', error);
+            console.error('Stack trace:', error.stack);
+            throw new Error(`Failed to generate Flutter project: ${error.message}`);
+        }
+    }
     validateAndNormalizeDiagram(classes) {
         if (!classes || classes.length === 0) {
             throw new common_1.BadRequestException('Diagram must contain at least one class');
@@ -539,6 +594,42 @@ let CodeGenerationService = class CodeGenerationService {
             },
             orderBy: { generatedAt: 'desc' },
         });
+    }
+    async createFlutterProjectStructure(projectPath, projectName) {
+        const directories = [
+            `${projectPath}/lib/config`,
+            `${projectPath}/lib/models`,
+            `${projectPath}/lib/services`,
+            `${projectPath}/lib/screens`,
+            `${projectPath}/lib/screens/home`,
+        ];
+        for (const dir of directories) {
+            await fs.mkdir(dir, { recursive: true });
+        }
+    }
+    async generateFlutterFromTemplates(projectPath, data) {
+        const templatesDir = path.join(__dirname, '../../templates/flutter');
+        const { projectName, classes } = data;
+        await this.renderTemplate(path.join(templatesDir, 'pubspec.yaml.ejs'), path.join(projectPath, 'pubspec.yaml'), { projectName });
+        await this.renderTemplate(path.join(templatesDir, 'main.dart.ejs'), path.join(projectPath, 'lib/main.dart'), { projectName });
+        await this.renderTemplate(path.join(templatesDir, 'api_config.dart.ejs'), path.join(projectPath, 'lib/config/api_config.dart'), {});
+        await this.renderTemplate(path.join(templatesDir, 'api_service.dart.ejs'), path.join(projectPath, 'lib/services/api_service.dart'), {});
+        await this.renderTemplate(path.join(templatesDir, 'HomeScreen.dart.ejs'), path.join(projectPath, 'lib/screens/home_screen.dart'), { projectName, classes });
+        await this.renderTemplate(path.join(templatesDir, 'README.md.ejs'), path.join(projectPath, 'README.md'), { projectName, classes });
+        await this.renderTemplate(path.join(templatesDir, '.gitignore.ejs'), path.join(projectPath, '.gitignore'), {});
+        for (const cls of classes) {
+            await this.generateFlutterClassFiles(projectPath, cls);
+        }
+    }
+    async generateFlutterClassFiles(projectPath, classData) {
+        const templatesDir = path.join(__dirname, '../../templates/flutter');
+        const className = classData.className;
+        const classNameLower = className.toLowerCase();
+        await fs.mkdir(`${projectPath}/lib/screens/${classNameLower}`, { recursive: true });
+        await this.renderTemplate(path.join(templatesDir, 'Model.dart.ejs'), path.join(projectPath, `lib/models/${classNameLower}.dart`), classData);
+        await this.renderTemplate(path.join(templatesDir, 'Service.dart.ejs'), path.join(projectPath, `lib/services/${classNameLower}_service.dart`), classData);
+        await this.renderTemplate(path.join(templatesDir, 'ListScreen.dart.ejs'), path.join(projectPath, `lib/screens/${classNameLower}/${classNameLower}_list_screen.dart`), classData);
+        await this.renderTemplate(path.join(templatesDir, 'FormScreen.dart.ejs'), path.join(projectPath, `lib/screens/${classNameLower}/${classNameLower}_form_screen.dart`), classData);
     }
 };
 exports.CodeGenerationService = CodeGenerationService;

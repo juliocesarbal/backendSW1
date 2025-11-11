@@ -1,4 +1,11 @@
-package <%= basePackage %>.entity;
+<%
+// Helper function to convert field names to camelCase (Java convention)
+function toCamelCase(str) {
+  if (!str) return str;
+  // Convert first character to lowercase
+  return str.charAt(0).toLowerCase() + str.slice(1);
+}
+%>package <%= basePackage %>.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -60,7 +67,7 @@ public class <%= className %><% if (parentClass) { %> extends <%= parentClass %>
 <% } else { %>
     @Column(name = "<%= attr.columnName %>"<% if (!attr.nullable) { %>, nullable = false<% } %><% if (attr.unique) { %>, unique = true<% } %><% if (attr.length) { %>, length = <%= attr.length %><% } %>)
 <% } %>
-    private <%- attr.type %> <%= attr.name %>;
+    private <%- attr.type %> <%= toCamelCase(attr.name) %>;
 <% } %>
 <% }); %>
 }

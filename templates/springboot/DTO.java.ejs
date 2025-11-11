@@ -1,4 +1,11 @@
-package <%= basePackage %>.dto;
+<%
+// Helper function to convert field names to camelCase (Java convention)
+function toCamelCase(str) {
+  if (!str) return str;
+  // Convert first character to lowercase
+  return str.charAt(0).toLowerCase() + str.slice(1);
+}
+%>package <%= basePackage %>.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -25,7 +32,7 @@ public class <%= className %>DTO {
     // Unique field: <%= attr.name %>
 <% } %>
 <% var fieldName = attr.isRelation ? (attr.name + 'Id') : attr.name; %>
-    private <%= attr.isRelation ? (attr.referencedIdType || idType) : attr.type %> <%= fieldName %>;
+    private <%= attr.isRelation ? (attr.referencedIdType || idType) : attr.type %> <%= toCamelCase(fieldName) %>;
 <% } %>
 <% }); %>
 }
