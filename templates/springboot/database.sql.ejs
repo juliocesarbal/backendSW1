@@ -20,6 +20,23 @@ function getSqlType(javaType) {
     return typeMap[javaType] || 'VARCHAR(255)';
 }
 
+// Helper function to find the primary key column name of a table
+function getPrimaryKeyColumn(tableName) {
+    // Find the class with this table name
+    const targetClass = classes.find(c => c.tableName === tableName);
+    if (!targetClass) {
+        return 'id'; // fallback
+    }
+
+    // Find the ID attribute
+    const idAttr = targetClass.attributes.find(a => a.isId);
+    if (idAttr) {
+        return idAttr.columnName;
+    }
+
+    return 'id'; // fallback
+}
+
 // Create a reversed copy for dropping tables (don't mutate original)
 const reversedClasses = [...classes].reverse();
 %>
@@ -50,11 +67,14 @@ DROP TABLE IF EXISTS <%= cls.tableName %> CASCADE;
 
 <% classes.forEach(function(cls) { %>
 -- Table: <%= cls.tableName %>
+<%
+// Filter attributes that should be included as columns
+const columnsToInclude = cls.attributes.filter(a => !a.isRelation || (a.isRelation && a.relationType === 'MANY_TO_ONE'));
+%>
 CREATE TABLE <%= cls.tableName %> (
-<% cls.attributes.forEach(function(attr, index) { %>
-<% if (!attr.isRelation || (attr.isRelation && attr.relationType === 'MANY_TO_ONE')) { %>
-    <%= attr.columnName %> <%= attr.isRelation && attr.relationType === 'MANY_TO_ONE' ? 'BIGINT' : getSqlType(attr.type) %><% if (attr.isId) { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% } else { %><% if (!attr.nullable) { %> NOT NULL<% } %><% if (attr.unique) { %> UNIQUE<% } %><% } %><% if (index < cls.attributes.filter(a => !a.isRelation || a.relationType === 'MANY_TO_ONE').length - 1) { %>,<% } %>
-<% } %>
+<% columnsToInclude.forEach(function(attr, index) { %>
+    <%= attr.columnName %> <%= attr.isRelation && attr.relationType === 'MANY_TO_ONE' ? 'BIGINT' : getSqlType(attr.type) %><% if (attr.isId) { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% } else { %><% if (!attr.nullable) { %> NOT NULL<% } %><% if (attr.unique) { %> UNIQUE<% } %><% } %><% if (index < columnsToInclude.length - 1) { %>,<% } %>
+
 <% }); %>
 );
 
@@ -70,7 +90,7 @@ CREATE TABLE <%= cls.tableName %> (
 ALTER TABLE <%= cls.tableName %>
     ADD CONSTRAINT fk_<%= cls.tableName %>_<%= attr.foreignKey.referencedTable %>
     FOREIGN KEY (<%= attr.columnName %>)
-    REFERENCES <%= attr.foreignKey.referencedTable %>(id)
+    REFERENCES <%= attr.foreignKey.referencedTable %>(<%= getPrimaryKeyColumn(attr.foreignKey.referencedTable) %>)
     ON DELETE <%= attr.foreignKey.onDelete || 'CASCADE' %>
     ON UPDATE <%= attr.foreignKey.onUpdate || 'CASCADE' %>;
 
@@ -95,16 +115,87 @@ CREATE INDEX idx_<%= cls.tableName %>_<%= attr.columnName %>
 -- =====================================================
 -- Create junction tables for Many-to-Many relationships
 -- =====================================================
+<%
+// Helper function to parse attribute string like "id: Integer [ID]"
+function parseIntermediateAttribute(attrString) {
+  // Format: "name: Type" or "name: Type [STEREOTYPE]"
+  const match = attrString.match(/^([^:]+):\s*([^\[]+)(?:\s*\[([^\]]+)\])?/);
+  if (!match) return null;
 
+  const name = match[1].trim();
+  const type = match[2].trim();
+  const stereotype = match[3] ? match[3].trim() : null;
+
+  // Map types to SQL
+  const sqlType = getSqlType(type);
+  const isId = stereotype === 'ID' || stereotype === 'id';
+
+  return { name, sqlType, isId };
+}
+
+// Track created junction tables to avoid duplicates
+const createdJunctionTables = new Set();
+const intermediateTablesMap = new Map();
+
+// Build map of intermediate tables from relations
+if (typeof relations !== 'undefined' && relations) {
+  relations.forEach(function(rel) {
+    if (rel.intermediateTable && rel.intermediateTable.name) {
+      const tableName = rel.intermediateTable.name.toLowerCase();
+      if (!intermediateTablesMap.has(tableName)) {
+        intermediateTablesMap.set(tableName, {
+          name: tableName,
+          attributes: rel.intermediateTable.attributes || [],
+          sourceClass: rel.sourceClassId,
+          targetClass: rel.targetClassId
+        });
+      }
+    }
+  });
+}
+%>
 <% classes.forEach(function(cls) { %>
 <% cls.attributes.forEach(function(attr) { %>
 <% if (attr.isRelation && attr.relationType === 'MANY_TO_MANY' && attr.joinTable) { %>
+<% if (!createdJunctionTables.has(attr.joinTable)) { %>
+<% createdJunctionTables.add(attr.joinTable); %>
+<%
+// Check if we have intermediate table metadata from relations map or from attribute
+let intermediateTableMeta = intermediateTablesMap.get(attr.joinTable);
+if (!intermediateTableMeta && attr.intermediateTableData) {
+  intermediateTableMeta = {
+    name: attr.joinTable,
+    attributes: attr.intermediateTableData.attributes || []
+  };
+}
+const hasCustomAttributes = intermediateTableMeta && intermediateTableMeta.attributes && intermediateTableMeta.attributes.length > 0;
+%>
 CREATE TABLE IF NOT EXISTS <%= attr.joinTable %> (
+<% if (hasCustomAttributes) { %>
+    <% // Generate columns from intermediate table attributes %>
+    <% let hasExplicitId = false; %>
+    <% intermediateTableMeta.attributes.forEach(function(attrStr, idx) { %>
+    <% const parsed = parseIntermediateAttribute(attrStr); %>
+    <% if (parsed) { %>
+    <%= parsed.name %> <%= parsed.sqlType %><% if (parsed.isId) { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% hasExplicitId = true; %><% } else { %> NOT NULL<% } %>,
+    <% } %>
+    <% }); %>
+    <% // Add foreign keys %>
+    <%= attr.joinColumn %> BIGINT NOT NULL,
+    <%= attr.inverseJoinColumn %> BIGINT NOT NULL,
+    <% if (!hasExplicitId) { %>
+    PRIMARY KEY (<%= attr.joinColumn %>, <%= attr.inverseJoinColumn %>),
+    <% } %>
+    FOREIGN KEY (<%= attr.joinColumn %>) REFERENCES <%= cls.tableName %>(<%= getPrimaryKeyColumn(cls.tableName) %>) ON DELETE CASCADE,
+    FOREIGN KEY (<%= attr.inverseJoinColumn %>) REFERENCES <%= attr.foreignKey.referencedTable %>(<%= getPrimaryKeyColumn(attr.foreignKey.referencedTable) %>) ON DELETE CASCADE
+<% } else { %>
+    <% // Default: just FKs with composite primary key %>
     <%= attr.joinColumn %> BIGINT NOT NULL,
     <%= attr.inverseJoinColumn %> BIGINT NOT NULL,
     PRIMARY KEY (<%= attr.joinColumn %>, <%= attr.inverseJoinColumn %>),
-    FOREIGN KEY (<%= attr.joinColumn %>) REFERENCES <%= cls.tableName %>(id) ON DELETE CASCADE,
-    FOREIGN KEY (<%= attr.inverseJoinColumn %>) REFERENCES <%= attr.foreignKey.referencedTable %>(id) ON DELETE CASCADE
+    FOREIGN KEY (<%= attr.joinColumn %>) REFERENCES <%= cls.tableName %>(<%= getPrimaryKeyColumn(cls.tableName) %>) ON DELETE CASCADE,
+    FOREIGN KEY (<%= attr.inverseJoinColumn %>) REFERENCES <%= attr.foreignKey.referencedTable %>(<%= getPrimaryKeyColumn(attr.foreignKey.referencedTable) %>) ON DELETE CASCADE
+<% } %>
 );
 
 CREATE INDEX idx_<%= attr.joinTable %>_<%= attr.joinColumn %>
@@ -114,8 +205,67 @@ CREATE INDEX idx_<%= attr.joinTable %>_<%= attr.inverseJoinColumn %>
     ON <%= attr.joinTable %>(<%= attr.inverseJoinColumn %>);
 
 <% } %>
+<% } %>
 <% }); %>
 <% }); %>
+
+-- =====================================================
+-- Add inheritance constraints (Table-per-Subtype pattern)
+-- =====================================================
+<%
+// Find inheritance relationships
+const inheritanceRelations = (typeof relations !== 'undefined' && relations)
+  ? relations.filter(r => r.type === 'INHERITANCE')
+  : [];
+
+if (inheritanceRelations.length > 0) {
+%>
+-- Inheritance relationships detected (Generalization/Specialization)
+<% inheritanceRelations.forEach(function(rel) { %>
+<%
+  // Find child class (source) and parent class (target)
+  // Relations now use the actual class IDs from the diagram
+  const childClass = classes.find(c => {
+    // Try matching by various possible ID formats
+    const classId = c.className ? c.className.toLowerCase() : '';
+    return rel.sourceClassId === c.className ||
+           rel.sourceClassId === classId ||
+           rel.sourceClassId.includes(classId) ||
+           classId.includes(rel.sourceClassId.replace('class_', ''));
+  });
+
+  const parentClass = classes.find(c => {
+    const classId = c.className ? c.className.toLowerCase() : '';
+    return rel.targetClassId === c.className ||
+           rel.targetClassId === classId ||
+           rel.targetClassId.includes(classId) ||
+           classId.includes(rel.targetClassId.replace('class_', ''));
+  });
+
+  if (childClass && parentClass) {
+    const childTable = childClass.tableName || childClass.className.toLowerCase();
+    const parentTable = parentClass.tableName || parentClass.className.toLowerCase();
+    const childPkColumn = getPrimaryKeyColumn(childTable);
+    const parentPkColumn = getPrimaryKeyColumn(parentTable);
+%>
+-- Inheritance: <%= childTable %> extends <%= parentTable %>
+-- Note: <%= childTable %> table should have '<%= childPkColumn %>' column that is both PK and FK to <%= parentTable %>(<%= parentPkColumn %>)
+-- Table-per-Subtype pattern: child table's PK is also FK to parent's PK
+ALTER TABLE <%= childTable %>
+    DROP CONSTRAINT IF EXISTS fk_<%= childTable %>_<%= parentTable %>_inheritance;
+
+ALTER TABLE <%= childTable %>
+    ADD CONSTRAINT fk_<%= childTable %>_<%= parentTable %>_inheritance
+    FOREIGN KEY (<%= childPkColumn %>)
+    REFERENCES <%= parentTable %>(<%= parentPkColumn %>)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE;
+
+<% } else { %>
+-- Warning: Could not resolve inheritance relationship: <%= rel.sourceClassId %> -> <%= rel.targetClassId %>
+<% } %>
+<% }); %>
+<% } %>
 
 -- =====================================================
 -- Insert sample data (optional - uncomment to use)

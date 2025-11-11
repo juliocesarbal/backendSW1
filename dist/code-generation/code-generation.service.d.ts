@@ -12,6 +12,7 @@ export declare class CodeGenerationService {
     private validateAndNormalizeDiagram;
     private transformClasses;
     private transformAttributes;
+    private analyzeMultiplicity;
     private mapRelationType;
     private mapToJavaType;
     private getSampleValue;

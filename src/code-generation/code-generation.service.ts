@@ -62,6 +62,7 @@ export class CodeGenerationService {
         basePackage,
         dbName,
         classes: transformedClasses,
+        relations, // AÑADIDO: Pasar relaciones para generar tablas intermedias
       });
       console.log('✅ Files generated from templates');
 
@@ -222,10 +223,13 @@ export class CodeGenerationService {
       }
 
       const targetClassName = targetClass.name;
-      const relationType = this.mapRelationType(relation.type, isSource);
+
+      // Try to determine relationship type from multiplicity first
+      const multiplicityAnalysis = this.analyzeMultiplicity(relation, isSource);
+      const relationType = multiplicityAnalysis.type;
       const relationName = relation.name || targetClassName.toLowerCase();
 
-      console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}`);
+      console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}, multiplicity=${JSON.stringify(relation.multiplicity)}`);
 
       if (relationType === 'MANY_TO_ONE') {
         result.push({
@@ -262,6 +266,25 @@ export class CodeGenerationService {
           mappedBy: mappedByField,
         });
       } else if (relationType === 'MANY_TO_MANY') {
+        // Determine join table name
+        let joinTableName: string;
+
+        // First, check if intermediateTable is defined in the relation
+        if (relation.intermediateTable && relation.intermediateTable.name) {
+          joinTableName = relation.intermediateTable.name.toLowerCase();
+          console.log(`🔗 Using explicit intermediate table name: ${joinTableName}`);
+
+          // Log intermediate table attributes
+          if (relation.intermediateTable.attributes) {
+            console.log(`   Attributes:`, relation.intermediateTable.attributes);
+          }
+        } else {
+          // Generate consistent join table name by sorting alphabetically
+          const tables = [className.toLowerCase(), targetClassName.toLowerCase()].sort();
+          joinTableName = `${tables[0]}_${tables[1]}`;
+          console.log(`🔗 Generated join table name (alphabetically sorted): ${joinTableName}`);
+        }
+
         result.push({
           name: relationName || `${targetClassName.toLowerCase()}s`,
           type: `Set<${targetClassName}>`,
@@ -270,12 +293,13 @@ export class CodeGenerationService {
           isId: false,
           isRelation: true,
           relationType: 'MANY_TO_MANY',
-          joinTable: `${className.toLowerCase()}_${targetClassName.toLowerCase()}`,
+          joinTable: joinTableName,
           joinColumn: `${className.toLowerCase()}_id`,
           inverseJoinColumn: `${targetClassName.toLowerCase()}_id`,
           foreignKey: {
             referencedTable: targetClass.name.toLowerCase(),
           },
+          intermediateTableData: relation.intermediateTable, // AÑADIDO: Pasar metadata completa
         });
       } else if (relationType === 'ONE_TO_ONE') {
         result.push({
@@ -297,6 +321,61 @@ export class CodeGenerationService {
     }
 
     return result;
+  }
+
+  /**
+   * Analyze multiplicity to determine relationship type and FK direction
+   * Examples:
+   * - 1 to 1..*: ONE_TO_MANY, FK goes in the "many" side (1..*)
+   * - 1..* to 1: MANY_TO_ONE, FK goes in the current class
+   * - * to *: MANY_TO_MANY, needs junction table
+   * - 1 to 1: ONE_TO_ONE, FK can go in either side
+   */
+  private analyzeMultiplicity(relation: any, isSource: boolean): { type: string; needsFk: boolean } {
+    // Parse multiplicity object
+    let sourceMultiplicity = '1';
+    let targetMultiplicity = '1';
+
+    if (relation.multiplicity) {
+      if (typeof relation.multiplicity === 'string' && relation.multiplicity.includes(':')) {
+        const parts = relation.multiplicity.split(':');
+        sourceMultiplicity = parts[0] || '1';
+        targetMultiplicity = parts[1] || '1';
+      } else if (typeof relation.multiplicity === 'object') {
+        sourceMultiplicity = relation.multiplicity.source || '1';
+        targetMultiplicity = relation.multiplicity.target || '1';
+      }
+    }
+
+    // Helper to check if multiplicity represents "many"
+    const isMany = (mult: string) => mult.includes('*') || mult.includes('n') || mult.includes('N');
+
+    const sourceIsMany = isMany(sourceMultiplicity);
+    const targetIsMany = isMany(targetMultiplicity);
+
+    // Determine relationship type based on multiplicities
+    if (sourceIsMany && targetIsMany) {
+      // * to * = MANY_TO_MANY
+      return { type: 'MANY_TO_MANY', needsFk: false };
+    } else if (sourceIsMany && !targetIsMany) {
+      // * to 1 = from source perspective: MANY_TO_ONE, from target perspective: ONE_TO_MANY
+      if (isSource) {
+        return { type: 'MANY_TO_ONE', needsFk: true }; // Source needs FK to target
+      } else {
+        return { type: 'ONE_TO_MANY', needsFk: false }; // Target doesn't need FK
+      }
+    } else if (!sourceIsMany && targetIsMany) {
+      // 1 to * = from source perspective: ONE_TO_MANY, from target perspective: MANY_TO_ONE
+      if (isSource) {
+        return { type: 'ONE_TO_MANY', needsFk: false }; // Source doesn't need FK
+      } else {
+        return { type: 'MANY_TO_ONE', needsFk: true }; // Target needs FK to source
+      }
+    } else {
+      // 1 to 1 = ONE_TO_ONE
+      // By convention, FK goes in the source side
+      return { type: 'ONE_TO_ONE', needsFk: isSource };
+    }
   }
 
   private mapRelationType(relationType: string, isSource: boolean): string {

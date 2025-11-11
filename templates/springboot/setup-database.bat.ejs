@@ -1,6 +1,6 @@
 @echo off
 REM =====================================================
-REM Script para crear la base de datos automaticamente
+REM Script para crear la base de datos (VERSION INTERACTIVA)
 REM Proyecto: <%= projectName %>
 REM Base de datos: <%= dbName %>
 REM =====================================================
@@ -12,42 +12,69 @@ echo ====================================================
 echo.
 
 REM Configurar las credenciales de PostgreSQL
-REM IMPORTANTE: Cambia estos valores segun tu configuracion
-set PGPASSWORD=TucontraseñaCorrespondiente 
+REM NOTA: Este script es INTERACTIVO - te pedira la contraseña
 set PGUSER=postgres
 set PGHOST=localhost
 set PGPORT=5432
 
-REM Ruta al ejecutable de psql (ajusta segun tu instalacion)
-set PSQL_PATH=C:\Program Files\PostgreSQL\17\bin\psql.exe
+REM Detectar version de PostgreSQL instalada
+set PSQL_PATH=
 
-echo [1/3] Verificando PostgreSQL...
-"%PSQL_PATH%" --version
-if %errorlevel% neq 0 (
-    echo ERROR: No se pudo encontrar PostgreSQL en: %PSQL_PATH%
+REM Intentar encontrar PostgreSQL automaticamente
+for %%v in (17 16 15 14 13) do (
+    if exist "C:\Program Files\PostgreSQL\%%v\bin\psql.exe" (
+        set PSQL_PATH=C:\Program Files\PostgreSQL\%%v\bin\psql.exe
+        goto :found
+    )
+)
+
+:found
+if "%PSQL_PATH%"=="" (
+    echo ERROR: No se pudo encontrar PostgreSQL instalado
     echo.
     echo Posibles soluciones:
     echo   1. Verifica que PostgreSQL este instalado
-    echo   2. Ajusta PSQL_PATH en este script a la ruta correcta
-    echo   3. Ejemplos de rutas comunes:
-    echo      - C:\Program Files\PostgreSQL\15\bin\psql.exe
-    echo      - C:\Program Files\PostgreSQL\16\bin\psql.exe
-    echo      - C:\Program Files\PostgreSQL\17\bin\psql.exe
+    echo   2. Instala PostgreSQL desde: https://www.postgresql.org/download/
+    echo   3. Si ya esta instalado, edita PSQL_PATH en este script manualmente
     echo.
     pause
     exit /b 1
 )
 
+echo [1/3] PostgreSQL encontrado: %PSQL_PATH%
+"%PSQL_PATH%" --version
+echo.
+
+echo ====================================================
+echo   IMPORTANTE: Se te pedira la contraseña de postgres
+echo ====================================================
+echo.
+echo Usuario: %PGUSER%
+echo Host: %PGHOST%:%PGPORT%
+echo.
+echo Si no conoces la contraseña, puedes:
+echo   - Usar pgAdmin para crear la base de datos manualmente
+echo   - Resetear la contraseña de postgres
+echo.
+echo ====================================================
+echo.
+pause
+
 echo.
 echo [2/3] Creando la base de datos '<%= dbName %>'...
+echo Ingresa la contraseña de postgres cuando se solicite:
+echo.
 "%PSQL_PATH%" -U %PGUSER% -h %PGHOST% -p %PGPORT% -d postgres -c "CREATE DATABASE <%= dbName %>;"
 if %errorlevel% neq 0 (
+    echo.
     echo AVISO: La base de datos podria ya existir. Continuando...
     echo.
 )
 
 echo.
 echo [3/3] Ejecutando script SQL para crear tablas y relaciones...
+echo Ingresa la contraseña de postgres nuevamente:
+echo.
 "%PSQL_PATH%" -U %PGUSER% -h %PGHOST% -p %PGPORT% -d <%= dbName %> -f database.sql
 
 if %errorlevel% equ 0 (

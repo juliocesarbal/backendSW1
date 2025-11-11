@@ -54,6 +54,7 @@ let CodeGenerationService = class CodeGenerationService {
                 basePackage,
                 dbName,
                 classes: transformedClasses,
+                relations,
             });
             console.log('✅ Files generated from templates');
             const zipPath = `${projectPath}.zip`;
@@ -172,9 +173,10 @@ let CodeGenerationService = class CodeGenerationService {
                 continue;
             }
             const targetClassName = targetClass.name;
-            const relationType = this.mapRelationType(relation.type, isSource);
+            const multiplicityAnalysis = this.analyzeMultiplicity(relation, isSource);
+            const relationType = multiplicityAnalysis.type;
             const relationName = relation.name || targetClassName.toLowerCase();
-            console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}`);
+            console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}, multiplicity=${JSON.stringify(relation.multiplicity)}`);
             if (relationType === 'MANY_TO_ONE') {
                 result.push({
                     name: relationName,
@@ -207,6 +209,19 @@ let CodeGenerationService = class CodeGenerationService {
                 });
             }
             else if (relationType === 'MANY_TO_MANY') {
+                let joinTableName;
+                if (relation.intermediateTable && relation.intermediateTable.name) {
+                    joinTableName = relation.intermediateTable.name.toLowerCase();
+                    console.log(`🔗 Using explicit intermediate table name: ${joinTableName}`);
+                    if (relation.intermediateTable.attributes) {
+                        console.log(`   Attributes:`, relation.intermediateTable.attributes);
+                    }
+                }
+                else {
+                    const tables = [className.toLowerCase(), targetClassName.toLowerCase()].sort();
+                    joinTableName = `${tables[0]}_${tables[1]}`;
+                    console.log(`🔗 Generated join table name (alphabetically sorted): ${joinTableName}`);
+                }
                 result.push({
                     name: relationName || `${targetClassName.toLowerCase()}s`,
                     type: `Set<${targetClassName}>`,
@@ -215,12 +230,13 @@ let CodeGenerationService = class CodeGenerationService {
                     isId: false,
                     isRelation: true,
                     relationType: 'MANY_TO_MANY',
-                    joinTable: `${className.toLowerCase()}_${targetClassName.toLowerCase()}`,
+                    joinTable: joinTableName,
                     joinColumn: `${className.toLowerCase()}_id`,
                     inverseJoinColumn: `${targetClassName.toLowerCase()}_id`,
                     foreignKey: {
                         referencedTable: targetClass.name.toLowerCase(),
                     },
+                    intermediateTableData: relation.intermediateTable,
                 });
             }
             else if (relationType === 'ONE_TO_ONE') {
@@ -242,6 +258,46 @@ let CodeGenerationService = class CodeGenerationService {
             }
         }
         return result;
+    }
+    analyzeMultiplicity(relation, isSource) {
+        let sourceMultiplicity = '1';
+        let targetMultiplicity = '1';
+        if (relation.multiplicity) {
+            if (typeof relation.multiplicity === 'string' && relation.multiplicity.includes(':')) {
+                const parts = relation.multiplicity.split(':');
+                sourceMultiplicity = parts[0] || '1';
+                targetMultiplicity = parts[1] || '1';
+            }
+            else if (typeof relation.multiplicity === 'object') {
+                sourceMultiplicity = relation.multiplicity.source || '1';
+                targetMultiplicity = relation.multiplicity.target || '1';
+            }
+        }
+        const isMany = (mult) => mult.includes('*') || mult.includes('n') || mult.includes('N');
+        const sourceIsMany = isMany(sourceMultiplicity);
+        const targetIsMany = isMany(targetMultiplicity);
+        if (sourceIsMany && targetIsMany) {
+            return { type: 'MANY_TO_MANY', needsFk: false };
+        }
+        else if (sourceIsMany && !targetIsMany) {
+            if (isSource) {
+                return { type: 'MANY_TO_ONE', needsFk: true };
+            }
+            else {
+                return { type: 'ONE_TO_MANY', needsFk: false };
+            }
+        }
+        else if (!sourceIsMany && targetIsMany) {
+            if (isSource) {
+                return { type: 'ONE_TO_MANY', needsFk: false };
+            }
+            else {
+                return { type: 'MANY_TO_ONE', needsFk: true };
+            }
+        }
+        else {
+            return { type: 'ONE_TO_ONE', needsFk: isSource };
+        }
     }
     mapRelationType(relationType, isSource) {
         const normalizedType = relationType.toUpperCase().replace(/-/g, '_');
