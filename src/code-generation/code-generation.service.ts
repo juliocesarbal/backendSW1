@@ -637,13 +637,6 @@ export class CodeGenerationService {
       { projectName, dbName, classes }
     );
 
-    // Generate .env.example
-    await this.renderTemplate(
-      path.join(templatesDir, '.env.example'),
-      path.join(projectPath, '.env.example'),
-      { projectName, dbName }
-    );
-
     // Generate .env with default values
     await this.renderTemplate(
       path.join(templatesDir, '.env.ejs'),

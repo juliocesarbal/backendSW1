@@ -469,7 +469,6 @@ let CodeGenerationService = class CodeGenerationService {
         await this.renderTemplate(path.join(templatesDir, 'application.properties.ejs'), path.join(projectPath, 'src/main/resources/application.properties'), { projectName, dbName });
         await this.renderTemplate(path.join(templatesDir, 'database.sql.ejs'), path.join(projectPath, 'database.sql'), { projectName, dbName, classes, relations });
         await this.renderTemplate(path.join(templatesDir, 'setup-database.bat.ejs'), path.join(projectPath, 'setup-database.bat'), { projectName, dbName, classes });
-        await this.renderTemplate(path.join(templatesDir, '.env.example'), path.join(projectPath, '.env.example'), { projectName, dbName });
         await this.renderTemplate(path.join(templatesDir, '.env.ejs'), path.join(projectPath, '.env'), { projectName, dbName });
         await this.renderTemplate(path.join(templatesDir, 'README.md.ejs'), path.join(projectPath, 'README.md'), { projectName, basePackage, dbName, classes });
         await this.renderTemplate(path.join(templatesDir, '.gitignore.ejs'), path.join(projectPath, '.gitignore'), { projectName, dbName });
