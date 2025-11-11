@@ -113,12 +113,20 @@ La multiplicidad debe ser un objeto con "source" y "target":
 - { "source": "1..*", "target": "1" } = uno o más a uno
 
 RELACIONES MUCHOS A MUCHOS (N:N):
-Cuando detectes una relación muchos a muchos (source="*" y target="*"):
-- Usa type: "ManyToMany" o "ASSOCIATION"
-- IMPORTANTE: Establece multiplicity: { "source": "*", "target": "*" }
-- El sistema automáticamente creará una tabla intermedia con nombre: clase1_clase2
-- La tabla intermedia contendrá FKs a ambas clases
-- Ejemplos de N:N: Estudiante-Curso, Producto-Categoria, Actor-Pelicula
+Cuando detectes una relación muchos a muchos:
+- DEBES CREAR una clase intermedia explícitamente en el array "classes"
+- La clase intermedia debe tener nombre: clase1_clase2 (ejemplo: estudiante_curso, producto_categoria)
+- La clase intermedia DEBE tener estos atributos:
+  * id: Long con stereotype="id", nullable=false, unique=true
+  * clase1Id: Long con stereotype="fk", nullable=false (FK a la primera clase)
+  * clase2Id: Long con stereotype="fk", nullable=false (FK a la segunda clase)
+- Crear dos relaciones MANY_TO_ONE desde la clase intermedia hacia las dos clases principales
+- Ejemplo completo para Estudiante-Curso:
+  * Clase "estudiante" con sus atributos
+  * Clase "curso" con sus atributos
+  * Clase "estudiante_curso" con: id, estudianteId [FK], cursoId [FK]
+  * Relación: estudiante_curso → estudiante (MANY_TO_ONE, source="*", target="1")
+  * Relación: estudiante_curso → curso (MANY_TO_ONE, source="*", target="1")
 
 CASOS COMUNES DE N:N:
 - FARMACIA: Medicamento <-> Proveedor (un medicamento puede tener varios proveedores)
@@ -471,7 +479,7 @@ These are TWO separate relationships:
   Relationship 2: producto_catalogo to Catalogo with { "source": "1", "target": "*" }`;
                 const claudeVisionMessage = await this.anthropic.messages.create({
                     model: this.CLAUDE_MODEL_MAIN,
-                    max_tokens: this.MaxTokens,
+                    max_tokens: 16384,
                     messages: [
                         {
                             role: 'user',
@@ -690,7 +698,7 @@ MULTIPLICIDAD (FORMATO OBJETO):
 - Formato: { "source": "valor", "target": "valor" }
 - { "source": "1", "target": "1" } = uno a uno
 - { "source": "1", "target": "*" } = uno a muchos
-- { "source": "*", "target": "*" } = muchos a muchos (se creará tabla intermedia automáticamente)
+- { "source": "*", "target": "*" } = muchos a muchos (requiere crear clase intermedia explícitamente)
 - { "source": "0..1", "target": "1..*" } = opcional a uno o más
 - Siempre incluir multiplicidad en las relaciones
 

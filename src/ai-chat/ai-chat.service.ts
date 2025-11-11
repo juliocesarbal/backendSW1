@@ -11,7 +11,7 @@ export class AiChatService {
   // 🎯 Configuración de modelos de Claude - Cambia aquí para usar otro modelo
  private readonly CLAUDE_MODEL_MAIN = 'claude-sonnet-4-5-20250929';   // Modelo principal para tareas complejas
  private readonly CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';   // Modelo rápido / ligero   // Modelo rápido para tareas simples
- private readonly MaxTokens = 8192;  // Aumentado para mejor análisis de imágenes y diagramas complejos
+ private readonly MaxTokens = 8192;  // Aumentado para análisis de imágenes complejas y diagramas grandes
  //El modelo principal al momento de la presentancion va a ser  'claude-sonnet-4-5-20250929'
   
   constructor(
@@ -111,12 +111,20 @@ La multiplicidad debe ser un objeto con "source" y "target":
 - { "source": "1..*", "target": "1" } = uno o más a uno
 
 RELACIONES MUCHOS A MUCHOS (N:N):
-Cuando detectes una relación muchos a muchos (source="*" y target="*"):
-- Usa type: "ManyToMany" o "ASSOCIATION"
-- IMPORTANTE: Establece multiplicity: { "source": "*", "target": "*" }
-- El sistema automáticamente creará una tabla intermedia con nombre: clase1_clase2
-- La tabla intermedia contendrá FKs a ambas clases
-- Ejemplos de N:N: Estudiante-Curso, Producto-Categoria, Actor-Pelicula
+Cuando detectes una relación muchos a muchos:
+- DEBES CREAR una clase intermedia explícitamente en el array "classes"
+- La clase intermedia debe tener nombre: clase1_clase2 (ejemplo: estudiante_curso, producto_categoria)
+- La clase intermedia DEBE tener estos atributos:
+  * id: Long con stereotype="id", nullable=false, unique=true
+  * clase1Id: Long con stereotype="fk", nullable=false (FK a la primera clase)
+  * clase2Id: Long con stereotype="fk", nullable=false (FK a la segunda clase)
+- Crear dos relaciones MANY_TO_ONE desde la clase intermedia hacia las dos clases principales
+- Ejemplo completo para Estudiante-Curso:
+  * Clase "estudiante" con sus atributos
+  * Clase "curso" con sus atributos
+  * Clase "estudiante_curso" con: id, estudianteId [FK], cursoId [FK]
+  * Relación: estudiante_curso → estudiante (MANY_TO_ONE, source="*", target="1")
+  * Relación: estudiante_curso → curso (MANY_TO_ONE, source="*", target="1")
 
 CASOS COMUNES DE N:N:
 - FARMACIA: Medicamento <-> Proveedor (un medicamento puede tener varios proveedores)
@@ -536,7 +544,7 @@ These are TWO separate relationships:
 
         const claudeVisionMessage = await this.anthropic.messages.create({
           model: this.CLAUDE_MODEL_MAIN,
-          max_tokens: this.MaxTokens,
+          max_tokens: 16384,
           messages: [
             {
               role: 'user',
@@ -682,12 +690,12 @@ These are TWO separate relationships:
         'dependencia', 'dependency',
         'atributo', 'attribute', 'campo', 'field',
         'metodo', 'método', 'method', 'funcion', 'función', 'function'
-      ];
+    ];
 
-      const isDiagramRequest = diagramKeywords.some(keyword => lowerMessage.includes(keyword));
+    const isDiagramRequest = diagramKeywords.some(keyword => lowerMessage.includes(keyword));
 
-      // Si es una solicitud de diagrama, generar el modelo UML directamente
-      if (isDiagramRequest && diagramId && userId) {
+    // Si es una solicitud de diagrama, generar el modelo UML directamente
+    if (isDiagramRequest && diagramId && userId) {
         console.log('🎨 Detectada solicitud de diagrama, generando modelo UML...');
 
         const systemPrompt = `Eres un experto arquitecto de software especializado en diseño de sistemas y diagramas UML. Tu tarea es analizar la solicitud del usuario y generar un diagrama de clases UML completo y profesional.
@@ -778,7 +786,7 @@ MULTIPLICIDAD (FORMATO OBJETO):
 - Formato: { "source": "valor", "target": "valor" }
 - { "source": "1", "target": "1" } = uno a uno
 - { "source": "1", "target": "*" } = uno a muchos
-- { "source": "*", "target": "*" } = muchos a muchos (se creará tabla intermedia automáticamente)
+- { "source": "*", "target": "*" } = muchos a muchos (requiere crear clase intermedia explícitamente)
 - { "source": "0..1", "target": "1..*" } = opcional a uno o más
 - Siempre incluir multiplicidad en las relaciones
 
