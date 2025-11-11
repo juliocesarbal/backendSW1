@@ -15,6 +15,8 @@ const prisma_service_1 = require("../prisma/prisma.service");
 const config_1 = require("@nestjs/config");
 const diagram_service_1 = require("../diagram/diagram.service");
 const sdk_1 = require("@anthropic-ai/sdk");
+const fs = require("fs");
+const path = require("path");
 let AiChatService = class AiChatService {
     constructor(prisma, configService, diagramService) {
         this.prisma = prisma;
@@ -389,13 +391,16 @@ CASOS COMUNES DE N:N:
             }
             if (imageBase64 && diagramId && userId) {
                 console.log('🖼️ Imagen detectada, analizando diagrama de clases...');
-                const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
-                if (!base64Match) {
-                    throw new Error('Formato de imagen inválido. Debe ser base64 con data URL.');
-                }
-                const mediaType = `image/${base64Match[1]}`;
-                const base64Data = base64Match[2];
-                const visionPrompt = `You are an expert in UML diagrams. Analyze this image VERY CAREFULLY and extract ALL information.
+                const imageProcessingStartTime = Date.now();
+                try {
+                    const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+                    if (!base64Match) {
+                        throw new Error('Formato de imagen inválido. Debe ser base64 con data URL.');
+                    }
+                    const mediaType = `image/${base64Match[1]}`;
+                    const base64Data = base64Match[2];
+                    console.log(`📊 Imagen stats: tipo=${mediaType}, tamaño aprox=${Math.round(base64Data.length / 1024)}KB`);
+                    const visionPrompt = `You are an expert in UML diagrams. Analyze this image VERY CAREFULLY and extract ALL information.
 
 CRITICAL - MULTIPLICITY:
 On each relationship line, look for small numbers at BOTH ends:
@@ -477,65 +482,88 @@ If you see: [Producto] ---*---- [producto_catalogo] ----*--- [Catalogo]
 These are TWO separate relationships:
   Relationship 1: Producto to producto_catalogo with { "source": "*", "target": "1" }
   Relationship 2: producto_catalogo to Catalogo with { "source": "1", "target": "*" }`;
-                const claudeVisionMessage = await this.anthropic.messages.create({
-                    model: this.CLAUDE_MODEL_MAIN,
-                    max_tokens: 16384,
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                {
-                                    type: 'image',
-                                    source: {
-                                        type: 'base64',
-                                        media_type: mediaType,
-                                        data: base64Data,
+                    const claudeVisionMessage = await this.anthropic.messages.create({
+                        model: this.CLAUDE_MODEL_MAIN,
+                        max_tokens: 8192,
+                        messages: [
+                            {
+                                role: 'user',
+                                content: [
+                                    {
+                                        type: 'image',
+                                        source: {
+                                            type: 'base64',
+                                            media_type: mediaType,
+                                            data: base64Data,
+                                        },
                                     },
-                                },
-                                {
-                                    type: 'text',
-                                    text: visionPrompt,
-                                },
-                            ],
-                        },
-                    ],
-                });
-                if (!claudeVisionMessage.content || claudeVisionMessage.content.length === 0) {
-                    throw new Error('Invalid response from Claude Vision API');
-                }
-                const visionText = claudeVisionMessage.content[0].type === 'text' ? claudeVisionMessage.content[0].text : '';
-                console.log('\n═══════════════════════════════════════════════════════');
-                console.log('📝 RESPUESTA COMPLETA DE CLAUDE VISION:');
-                console.log('═══════════════════════════════════════════════════════');
-                console.log(visionText);
-                console.log('═══════════════════════════════════════════════════════\n');
-                let cleanedResponse = visionText.trim();
-                if (cleanedResponse.startsWith('```json')) {
-                    cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
-                }
-                else if (cleanedResponse.startsWith('```')) {
-                    cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
-                }
-                const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    cleanedResponse = jsonMatch[0];
-                }
-                let umlModel;
-                try {
-                    umlModel = JSON.parse(cleanedResponse);
-                    console.log('✅ Diagrama extraído de imagen. Clases:', umlModel.classes?.length);
+                                    {
+                                        type: 'text',
+                                        text: visionPrompt,
+                                    },
+                                ],
+                            },
+                        ],
+                    });
+                    if (!claudeVisionMessage.content || claudeVisionMessage.content.length === 0) {
+                        throw new Error('Invalid response from Claude Vision API');
+                    }
+                    const visionText = claudeVisionMessage.content[0].type === 'text' ? claudeVisionMessage.content[0].text : '';
                     console.log('\n═══════════════════════════════════════════════════════');
-                    console.log('🔍 MODELO JSON PARSEADO COMPLETO:');
+                    console.log('📝 RESPUESTA COMPLETA DE CLAUDE VISION:');
                     console.log('═══════════════════════════════════════════════════════');
-                    console.log(JSON.stringify(umlModel, null, 2));
+                    console.log(visionText);
                     console.log('═══════════════════════════════════════════════════════\n');
+                    let cleanedResponse = visionText.trim();
+                    if (cleanedResponse.startsWith('```json')) {
+                        cleanedResponse = cleanedResponse.replace(/```json\n?/, '').replace(/\n?```$/, '');
+                    }
+                    else if (cleanedResponse.startsWith('```')) {
+                        cleanedResponse = cleanedResponse.replace(/```\n?/, '').replace(/\n?```$/, '');
+                    }
+                    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        cleanedResponse = jsonMatch[0];
+                    }
+                    let umlModel;
+                    try {
+                        umlModel = JSON.parse(cleanedResponse);
+                        console.log('✅ Diagrama extraído de imagen. Clases:', umlModel.classes?.length);
+                        console.log('\n═══════════════════════════════════════════════════════');
+                        console.log('🔍 MODELO JSON PARSEADO COMPLETO:');
+                        console.log('═══════════════════════════════════════════════════════');
+                        console.log(JSON.stringify(umlModel, null, 2));
+                        console.log('═══════════════════════════════════════════════════════\n');
+                        if (umlModel.relations && umlModel.relations.length > 0) {
+                            console.log('🔗 MULTIPLICIDADES EXTRAÍDAS DE LA IMAGEN (RAW):');
+                            umlModel.relations.forEach((rel, idx) => {
+                                console.log(`  Relación ${idx + 1}: ${rel.sourceClassId} -> ${rel.targetClassId}`);
+                                console.log(`    Tipo: ${rel.type}`);
+                                console.log(`    Multiplicidad RAW:`, rel.multiplicity);
+                                console.log(`    Tipo de multiplicidad: ${typeof rel.multiplicity}`);
+                                if (typeof rel.multiplicity === 'object' && rel.multiplicity) {
+                                    console.log(`      - source: "${rel.multiplicity.source}"`);
+                                    console.log(`      - target: "${rel.multiplicity.target}"`);
+                                }
+                                console.log('');
+                            });
+                        }
+                    }
+                    catch (parseError) {
+                        console.error('❌ Error parseando JSON de imagen:', parseError.message);
+                        console.error('Contenido que intentó parsear:', cleanedResponse?.substring(0, 500));
+                        throw new Error('No se pudo extraer el diagrama de la imagen. Intenta con una imagen más clara.');
+                    }
+                    umlModel = this.validateAndFixModel(umlModel);
+                    console.log('\n═══════════════════════════════════════════════════════');
+                    console.log('✅ MODELO DESPUÉS DE VALIDACIÓN:');
+                    console.log('═══════════════════════════════════════════════════════');
                     if (umlModel.relations && umlModel.relations.length > 0) {
-                        console.log('🔗 MULTIPLICIDADES EXTRAÍDAS DE LA IMAGEN (RAW):');
+                        console.log('🔗 MULTIPLICIDADES DESPUÉS DE validateAndFixModel:');
                         umlModel.relations.forEach((rel, idx) => {
                             console.log(`  Relación ${idx + 1}: ${rel.sourceClassId} -> ${rel.targetClassId}`);
                             console.log(`    Tipo: ${rel.type}`);
-                            console.log(`    Multiplicidad RAW:`, rel.multiplicity);
-                            console.log(`    Tipo de multiplicidad: ${typeof rel.multiplicity}`);
+                            console.log(`    Multiplicidad VALIDADA:`, rel.multiplicity);
                             if (typeof rel.multiplicity === 'object' && rel.multiplicity) {
                                 console.log(`      - source: "${rel.multiplicity.source}"`);
                                 console.log(`      - target: "${rel.multiplicity.target}"`);
@@ -543,52 +571,80 @@ These are TWO separate relationships:
                             console.log('');
                         });
                     }
-                }
-                catch (parseError) {
-                    console.error('❌ Error parseando JSON de imagen:', parseError.message);
-                    console.error('Contenido que intentó parsear:', cleanedResponse?.substring(0, 500));
-                    throw new Error('No se pudo extraer el diagrama de la imagen. Intenta con una imagen más clara.');
-                }
-                umlModel = this.validateAndFixModel(umlModel);
-                console.log('\n═══════════════════════════════════════════════════════');
-                console.log('✅ MODELO DESPUÉS DE VALIDACIÓN:');
-                console.log('═══════════════════════════════════════════════════════');
-                if (umlModel.relations && umlModel.relations.length > 0) {
-                    console.log('🔗 MULTIPLICIDADES DESPUÉS DE validateAndFixModel:');
-                    umlModel.relations.forEach((rel, idx) => {
-                        console.log(`  Relación ${idx + 1}: ${rel.sourceClassId} -> ${rel.targetClassId}`);
-                        console.log(`    Tipo: ${rel.type}`);
-                        console.log(`    Multiplicidad VALIDADA:`, rel.multiplicity);
-                        if (typeof rel.multiplicity === 'object' && rel.multiplicity) {
-                            console.log(`      - source: "${rel.multiplicity.source}"`);
-                            console.log(`      - target: "${rel.multiplicity.target}"`);
-                        }
-                        console.log('');
-                    });
-                }
-                console.log('═══════════════════════════════════════════════════════\n');
-                await this.prisma.diagramActivity.create({
-                    data: {
-                        action: 'AI_IMAGE_ANALYSIS',
-                        changes: {
-                            message,
-                            extractedModel: umlModel,
-                            imageProvided: true,
+                    console.log('═══════════════════════════════════════════════════════\n');
+                    await this.prisma.diagramActivity.create({
+                        data: {
+                            action: 'AI_IMAGE_ANALYSIS',
+                            changes: {
+                                message,
+                                extractedModel: umlModel,
+                                imageProvided: true,
+                            },
+                            userId,
+                            diagramId,
                         },
-                        userId,
-                        diagramId,
-                    },
-                });
-                return {
-                    response: `✨ ${umlModel.name} (extraído de imagen)`,
-                    suggestions: [
-                        'Modificar atributos',
-                        'Cambiar relaciones',
-                        'Agregar más clases',
-                        'Ajustar multiplicidades'
-                    ],
-                    model: umlModel,
-                };
+                    });
+                    const processingTime = Date.now() - imageProcessingStartTime;
+                    console.log(`✅ Imagen procesada exitosamente en ${processingTime}ms`);
+                    return {
+                        response: `✨ ${umlModel.name} (extraído de imagen)`,
+                        suggestions: [
+                            'Modificar atributos',
+                            'Cambiar relaciones',
+                            'Agregar más clases',
+                            'Ajustar multiplicidades'
+                        ],
+                        model: umlModel,
+                    };
+                }
+                catch (imageError) {
+                    const processingTime = Date.now() - imageProcessingStartTime;
+                    console.error('\n❌❌❌ ERROR PROCESANDO IMAGEN ❌❌❌');
+                    console.error(`Tiempo transcurrido: ${processingTime}ms`);
+                    console.error(`Error tipo: ${imageError.name}`);
+                    console.error(`Error mensaje: ${imageError.message}`);
+                    console.error(`Error stack:`, imageError.stack);
+                    try {
+                        const failedImagesDir = path.join(process.cwd(), 'failed-images');
+                        if (!fs.existsSync(failedImagesDir)) {
+                            fs.mkdirSync(failedImagesDir, { recursive: true });
+                        }
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                        const fileName = `failed-${timestamp}.jpg`;
+                        const filePath = path.join(failedImagesDir, fileName);
+                        const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+                        if (base64Match) {
+                            const base64Data = base64Match[2];
+                            fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+                            console.log(`💾 Imagen guardada en: ${filePath}`);
+                        }
+                        const errorLogPath = path.join(failedImagesDir, `error-${timestamp}.txt`);
+                        const errorLog = `
+Timestamp: ${new Date().toISOString()}
+User ID: ${userId}
+Diagram ID: ${diagramId}
+Processing Time: ${processingTime}ms
+Error Type: ${imageError.name}
+Error Message: ${imageError.message}
+Stack Trace:
+${imageError.stack}
+`;
+                        fs.writeFileSync(errorLogPath, errorLog);
+                        console.log(`📄 Log guardado en: ${errorLogPath}`);
+                    }
+                    catch (saveError) {
+                        console.error('⚠️ No se pudo guardar la imagen/log:', saveError);
+                    }
+                    return {
+                        response: '😅 Lo siento, tuve problemas al analizar esta imagen. Por favor intenta con una imagen más clara o describe el sistema con texto.',
+                        suggestions: [
+                            'Intenta con una imagen más simple',
+                            'Asegúrate de que el diagrama sea legible',
+                            'Prueba describiendo el sistema con texto',
+                            'Verifica que la imagen no sea muy grande'
+                        ],
+                    };
+                }
             }
             const lowerMessage = message.toLowerCase();
             const diagramKeywords = [

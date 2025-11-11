@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { DiagramService } from '../diagram/diagram.service';
 import Anthropic from '@anthropic-ai/sdk';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class AiChatService {
@@ -449,15 +451,19 @@ CASOS COMUNES DE N:N:
       // Si hay una imagen, procesarla con Claude Vision para extraer el diagrama
       if (imageBase64 && diagramId && userId) {
         console.log('🖼️ Imagen detectada, analizando diagrama de clases...');
+        const imageProcessingStartTime = Date.now();
 
-        // Extraer el tipo MIME y los datos base64
-        const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
-        if (!base64Match) {
-          throw new Error('Formato de imagen inválido. Debe ser base64 con data URL.');
-        }
+        try {
+          // Extraer el tipo MIME y los datos base64
+          const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+          if (!base64Match) {
+            throw new Error('Formato de imagen inválido. Debe ser base64 con data URL.');
+          }
 
-        const mediaType = `image/${base64Match[1]}` as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
-        const base64Data = base64Match[2];
+          const mediaType = `image/${base64Match[1]}` as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+          const base64Data = base64Match[2];
+
+          console.log(`📊 Imagen stats: tipo=${mediaType}, tamaño aprox=${Math.round(base64Data.length / 1024)}KB`);
 
         const visionPrompt = `You are an expert in UML diagrams. Analyze this image VERY CAREFULLY and extract ALL information.
 
@@ -544,7 +550,7 @@ These are TWO separate relationships:
 
         const claudeVisionMessage = await this.anthropic.messages.create({
           model: this.CLAUDE_MODEL_MAIN,
-          max_tokens: 16384,
+          max_tokens: 12288,
           messages: [
             {
               role: 'user',
@@ -661,6 +667,9 @@ These are TWO separate relationships:
         });
 
         // Retornar el modelo extraído
+        const processingTime = Date.now() - imageProcessingStartTime;
+        console.log(`✅ Imagen procesada exitosamente en ${processingTime}ms`);
+
         return {
           response: `✨ ${umlModel.name} (extraído de imagen)`,
           suggestions: [
@@ -671,25 +680,81 @@ These are TWO separate relationships:
           ],
           model: umlModel,
         };
-      }
+      } catch (imageError: any) {
+        const processingTime = Date.now() - imageProcessingStartTime;
+        console.error('\n❌❌❌ ERROR PROCESANDO IMAGEN ❌❌❌');
+        console.error(`Tiempo transcurrido: ${processingTime}ms`);
+        console.error(`Error tipo: ${imageError.name}`);
+        console.error(`Error mensaje: ${imageError.message}`);
+        console.error(`Error stack:`, imageError.stack);
 
-      // Detectar si el usuario está solicitando creación o modificación de diagrama
-      const lowerMessage = message.toLowerCase();
-      const diagramKeywords = [
-        'crear', 'diseñar', 'generar', 'construir', 'hacer', 'modelar', 'armar',
-        'create', 'design', 'build', 'generate', 'make', 'construct', 'model',
-        'agregar', 'añadir', 'modificar', 'actualizar', 'cambiar', 'editar', 'eliminar', 'quitar',
-        'add', 'modify', 'update', 'change', 'edit', 'delete', 'remove',
-        'sistema', 'diagrama', 'modelo', 'esquema', 'clases', 'clase',
-        'system', 'diagram', 'schema', 'classes', 'class',
-        'relacion', 'relación', 'relation', 'relationship',
-        'agregacion', 'agregación', 'aggregation',
-        'composicion', 'composición', 'composition',
-        'herencia', 'inheritance', 'extends',
-        'asociacion', 'asociación', 'association',
-        'dependencia', 'dependency',
-        'atributo', 'attribute', 'campo', 'field',
-        'metodo', 'método', 'method', 'funcion', 'función', 'function'
+        // Guardar la imagen que falló para análisis
+        try {
+          const failedImagesDir = path.join(process.cwd(), 'failed-images');
+          if (!fs.existsSync(failedImagesDir)) {
+            fs.mkdirSync(failedImagesDir, { recursive: true });
+          }
+
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const fileName = `failed-${timestamp}.jpg`;
+          const filePath = path.join(failedImagesDir, fileName);
+
+          // Extraer base64 data
+          const base64Match = imageBase64.match(/^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/);
+          if (base64Match) {
+            const base64Data = base64Match[2];
+            fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+            console.log(`💾 Imagen guardada en: ${filePath}`);
+          }
+
+          // Guardar log del error
+          const errorLogPath = path.join(failedImagesDir, `error-${timestamp}.txt`);
+          const errorLog = `
+Timestamp: ${new Date().toISOString()}
+User ID: ${userId}
+Diagram ID: ${diagramId}
+Processing Time: ${processingTime}ms
+Error Type: ${imageError.name}
+Error Message: ${imageError.message}
+Stack Trace:
+${imageError.stack}
+`;
+          fs.writeFileSync(errorLogPath, errorLog);
+          console.log(`📄 Log guardado en: ${errorLogPath}`);
+        } catch (saveError) {
+          console.error('⚠️ No se pudo guardar la imagen/log:', saveError);
+        }
+
+        // Retornar error amigable al usuario
+        return {
+          response: '😅 Lo siento, tuve problemas al analizar esta imagen. Por favor intenta con una imagen más clara o describe el sistema con texto.',
+          suggestions: [
+            'Intenta con una imagen más simple',
+            'Asegúrate de que el diagrama sea legible',
+            'Prueba describiendo el sistema con texto',
+            'Verifica que la imagen no sea muy grande'
+          ],
+        };
+      }
+    }
+
+    // Detectar si el usuario está solicitando creación o modificación de diagrama
+    const lowerMessage = message.toLowerCase();
+    const diagramKeywords = [
+      'crear', 'diseñar', 'generar', 'construir', 'hacer', 'modelar', 'armar',
+      'create', 'design', 'build', 'generate', 'make', 'construct', 'model',
+      'agregar', 'añadir', 'modificar', 'actualizar', 'cambiar', 'editar', 'eliminar', 'quitar',
+      'add', 'modify', 'update', 'change', 'edit', 'delete', 'remove',
+      'sistema', 'diagrama', 'modelo', 'esquema', 'clases', 'clase',
+      'system', 'diagram', 'schema', 'classes', 'class',
+      'relacion', 'relación', 'relation', 'relationship',
+      'agregacion', 'agregación', 'aggregation',
+      'composicion', 'composición', 'composition',
+      'herencia', 'inheritance', 'extends',
+      'asociacion', 'asociación', 'association',
+      'dependencia', 'dependency',
+      'atributo', 'attribute', 'campo', 'field',
+      'metodo', 'método', 'method', 'funcion', 'función', 'function'
     ];
 
     const isDiagramRequest = diagramKeywords.some(keyword => lowerMessage.includes(keyword));

@@ -30,7 +30,10 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const port = configService.get('PORT', 3001);
-  await app.listen(port);
+  const server = await app.listen(port);
+
+  // Increase timeout for image processing (3 minutes)
+  server.setTimeout(180000);
 
   console.log(`🚀 UML Platform Backend running on port ${port}`);
 }
