@@ -10,6 +10,11 @@ Base URL: `http://localhost:8080`
 Base path: `/api/<%= cls.pluralName %>`
 
 ### Listar todos
+**URL para Postman:**
+```
+http://localhost:8080/api/<%= cls.pluralName %>
+```
+
 ```http
 GET /api/<%= cls.pluralName %>
 ```
@@ -31,6 +36,11 @@ GET /api/<%= cls.pluralName %>
 ---
 
 ### Obtener por ID
+**URL para Postman:**
+```
+http://localhost:8080/api/<%= cls.pluralName %>/1
+```
+
 ```http
 GET /api/<%= cls.pluralName %>/{id}
 ```
@@ -57,6 +67,11 @@ GET /api/<%= cls.pluralName %>/{id}
 ---
 
 ### Crear nuevo
+**URL para Postman:**
+```
+http://localhost:8080/api/<%= cls.pluralName %>
+```
+
 ```http
 POST /api/<%= cls.pluralName %>
 Content-Type: application/json
@@ -85,6 +100,11 @@ Content-Type: application/json
 ---
 
 ### Actualizar
+**URL para Postman:**
+```
+http://localhost:8080/api/<%= cls.pluralName %>/1
+```
+
 ```http
 PUT /api/<%= cls.pluralName %>/{id}
 Content-Type: application/json
@@ -120,6 +140,11 @@ Content-Type: application/json
 ---
 
 ### Eliminar
+**URL para Postman:**
+```
+http://localhost:8080/api/<%= cls.pluralName %>/1
+```
+
 ```http
 DELETE /api/<%= cls.pluralName %>/{id}
 ```

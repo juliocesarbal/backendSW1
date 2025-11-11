@@ -3,6 +3,7 @@ package <%= basePackage %>.entity;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
@@ -14,11 +15,19 @@ import java.util.Set;
 
 @Entity
 @Table(name = "<%= tableName %>")
+<% if (isParentInInheritance) { %>
+@Inheritance(strategy = InheritanceType.JOINED)
+<% } %>
 @Data
+<% if (parentClass) { %>
+@EqualsAndHashCode(callSuper = true)
+<% } %>
 @NoArgsConstructor
 @AllArgsConstructor
-public class <%= className %> {
+public class <%= className %><% if (parentClass) { %> extends <%= parentClass %><% } %> {
 <% attributes.forEach(function(attr) { %>
+<% // Skip ID attribute if this class inherits from parent (it inherits the ID) %>
+<% if (!(attr.isId && parentClass)) { %>
 <% if (attr.isId) { %>
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,13 +48,19 @@ public class <%= className %> {
     )
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 <% } else if (attr.relationType === 'ONE_TO_ONE') { %>
+<% if (attr.mappedBy) { %>
+    @OneToOne(mappedBy = "<%= attr.mappedBy %>", cascade = CascadeType.ALL)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+<% } else { %>
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(name = "<%= attr.columnName %>", referencedColumnName = "id")
     @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
+<% } %>
 <% } %>
 <% } else { %>
     @Column(name = "<%= attr.columnName %>"<% if (!attr.nullable) { %>, nullable = false<% } %><% if (attr.unique) { %>, unique = true<% } %><% if (attr.length) { %>, length = <%= attr.length %><% } %>)
 <% } %>
     private <%- attr.type %> <%= attr.name %>;
+<% } %>
 <% }); %>
 }

@@ -54,8 +54,10 @@ public class <%= className %>Service {
 <% attributes.forEach(function(attr) { %>
 <% if (!attr.isRelation) { %>
         dto.set<%= capitalize(attr.name) %>(entity.get<%= capitalize(attr.name) %>());
-<% } else if (attr.relationType === 'MANY_TO_ONE') { %>
-        dto.set<%= capitalize(attr.name.charAt(0).toLowerCase() + attr.name.slice(1)) %>Id(entity.get<%= capitalize(attr.name) %>() != null ? entity.get<%= capitalize(attr.name) %>().getId() : null);
+<% } else if (attr.relationType === 'MANY_TO_ONE' || (attr.relationType === 'ONE_TO_ONE' && attr.foreignKey)) { %>
+        if (entity.get<%= capitalize(attr.name) %>() != null) {
+            dto.set<%= capitalize(attr.name) %>Id(entity.get<%= capitalize(attr.name) %>().getId());
+        }
 <% } %>
 <% }); %>
         return dto;

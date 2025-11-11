@@ -16,6 +16,7 @@ export declare class CodeGenerationService {
     private mapRelationType;
     private mapToJavaType;
     private getSampleValue;
+    private toCamelCase;
     private pluralize;
     private capitalize;
     private createProjectStructure;

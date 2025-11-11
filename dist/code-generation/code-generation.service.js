@@ -113,9 +113,19 @@ let CodeGenerationService = class CodeGenerationService {
             const varName = className.charAt(0).toLowerCase() + className.slice(1);
             const pluralName = this.pluralize(className.toLowerCase());
             const tableName = className.toLowerCase();
+            const inheritanceRelation = relations.find(r => r.type === 'INHERITANCE' && r.sourceClassId === umlClass.id);
+            let parentClass = null;
+            if (inheritanceRelation) {
+                parentClass = umlClasses.find(c => c.id === inheritanceRelation.targetClassId);
+            }
             const idAttribute = umlClass.attributes.find((attr) => attr.stereotype === 'id');
             const idType = idAttribute ? this.mapToJavaType(idAttribute.type) : 'Long';
-            const attributes = this.transformAttributes(umlClass.attributes, umlClass.id, className, relations, umlClasses);
+            let attributes = this.transformAttributes(umlClass.attributes, umlClass.id, className, relations, umlClasses, parentClass);
+            if (parentClass) {
+                const parentAttributes = this.transformAttributes(parentClass.attributes, parentClass.id, parentClass.name, relations, umlClasses, null);
+                const parentAttrsExceptId = parentAttributes.filter(a => !a.isId);
+                attributes = [...parentAttrsExceptId, ...attributes];
+            }
             const uniqueFields = attributes
                 .filter((attr) => attr.unique && !attr.isId)
                 .map((attr) => ({
@@ -129,7 +139,9 @@ let CodeGenerationService = class CodeGenerationService {
                 key: attr.name,
                 value: attr.sampleValue,
             }));
+            const isParentInInheritance = relations.some(r => r.type === 'INHERITANCE' && r.targetClassId === umlClass.id);
             return {
+                id: umlClass.id,
                 className,
                 varName,
                 pluralName,
@@ -138,11 +150,21 @@ let CodeGenerationService = class CodeGenerationService {
                 attributes,
                 uniqueFields,
                 sampleData,
+                parentClass: parentClass ? parentClass.name : null,
+                isParentInInheritance,
             };
         });
     }
-    transformAttributes(attributes, classId, className, relations, allClasses) {
+    transformAttributes(attributes, classId, className, relations, allClasses, parentClass) {
         const result = [];
+        let parentIdColumnName = null;
+        if (parentClass) {
+            const parentIdAttr = parentClass.attributes.find((attr) => attr.stereotype === 'id');
+            if (parentIdAttr) {
+                parentIdColumnName = parentIdAttr.name.toLowerCase();
+                console.log(`🔗 [INHERITANCE] ${className} extends ${parentClass.name}, using parent's PK column: ${parentIdColumnName}`);
+            }
+        }
         for (const attr of attributes) {
             const isId = attr.stereotype === 'id';
             const isFk = attr.stereotype === 'fk';
@@ -151,10 +173,12 @@ let CodeGenerationService = class CodeGenerationService {
                 continue;
             }
             const javaType = this.mapToJavaType(attr.type);
+            const javaFieldName = isId ? 'id' : this.toCamelCase(attr.name);
+            const columnName = (isId && parentIdColumnName) ? parentIdColumnName : attr.name.toLowerCase();
             result.push({
-                name: attr.name,
+                name: javaFieldName,
                 type: javaType,
-                columnName: attr.name.toLowerCase(),
+                columnName: columnName,
                 nullable: attr.nullable !== false,
                 unique: attr.unique === true,
                 isId,
@@ -165,6 +189,10 @@ let CodeGenerationService = class CodeGenerationService {
         }
         const classRelations = relations.filter((r) => r.sourceClassId === classId || r.targetClassId === classId);
         for (const relation of classRelations) {
+            if (relation.type === 'INHERITANCE') {
+                console.log(`🔗 [INHERITANCE] Skipping relation for ${className} (handled by @Inheritance/@extends)`);
+                continue;
+            }
             const isSource = relation.sourceClassId === classId;
             const targetClassId = isSource ? relation.targetClassId : relation.sourceClassId;
             const targetClass = allClasses.find(c => c.id === targetClassId);
@@ -173,10 +201,12 @@ let CodeGenerationService = class CodeGenerationService {
                 continue;
             }
             const targetClassName = targetClass.name;
+            const targetIdAttr = targetClass.attributes.find((attr) => attr.stereotype === 'id');
+            const targetIdType = targetIdAttr ? this.mapToJavaType(targetIdAttr.type) : 'Long';
             const multiplicityAnalysis = this.analyzeMultiplicity(relation, isSource);
             const relationType = multiplicityAnalysis.type;
-            const relationName = relation.name || targetClassName.toLowerCase();
-            console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}, multiplicity=${JSON.stringify(relation.multiplicity)}`);
+            const relationName = targetClassName.charAt(0).toLowerCase() + targetClassName.slice(1);
+            console.log(`📊 [${className}] relation.name="${relation.name}", relationName="${relationName}", type=${relation.type}->${relationType}, target=${targetClassName}, targetIdType=${targetIdType}, multiplicity=${JSON.stringify(relation.multiplicity)}`);
             if (relationType === 'MANY_TO_ONE') {
                 result.push({
                     name: relationName,
@@ -187,6 +217,7 @@ let CodeGenerationService = class CodeGenerationService {
                     isId: false,
                     isRelation: true,
                     relationType: 'MANY_TO_ONE',
+                    referencedIdType: targetIdType,
                     foreignKey: {
                         referencedTable: targetClass.name.toLowerCase(),
                         onDelete: 'CASCADE',
@@ -195,10 +226,10 @@ let CodeGenerationService = class CodeGenerationService {
                 });
             }
             else if (relationType === 'ONE_TO_MANY') {
-                const mappedByField = relation.name || className.toLowerCase();
+                const mappedByField = className.charAt(0).toLowerCase() + className.slice(1);
                 console.log(`🔗 ONE_TO_MANY: ${className}.${relationName} -> ${targetClassName}, mappedBy="${mappedByField}"`);
                 result.push({
-                    name: relationName || `${targetClassName.toLowerCase()}s`,
+                    name: `${relationName}s`,
                     type: `List<${targetClassName}>`,
                     nullable: true,
                     unique: false,
@@ -223,7 +254,7 @@ let CodeGenerationService = class CodeGenerationService {
                     console.log(`🔗 Generated join table name (alphabetically sorted): ${joinTableName}`);
                 }
                 result.push({
-                    name: relationName || `${targetClassName.toLowerCase()}s`,
+                    name: `${relationName}s`,
                     type: `Set<${targetClassName}>`,
                     nullable: true,
                     unique: false,
@@ -240,21 +271,40 @@ let CodeGenerationService = class CodeGenerationService {
                 });
             }
             else if (relationType === 'ONE_TO_ONE') {
-                result.push({
-                    name: relationName,
-                    type: targetClassName,
-                    columnName: `${targetClassName.toLowerCase()}_id`,
-                    nullable: true,
-                    unique: false,
-                    isId: false,
-                    isRelation: true,
-                    relationType: 'ONE_TO_ONE',
-                    foreignKey: {
-                        referencedTable: targetClass.name.toLowerCase(),
-                        onDelete: 'CASCADE',
-                        onUpdate: 'CASCADE',
-                    },
-                });
+                console.log(`🔗 [ONE_TO_ONE Attribute] ${className} -> ${targetClassName}, needsFk=${multiplicityAnalysis.needsFk}`);
+                if (multiplicityAnalysis.needsFk) {
+                    console.log(`✅ [ONE_TO_ONE] Adding FK field in ${className}: ${relationName} (${targetClassName.toLowerCase()}_id)`);
+                    result.push({
+                        name: relationName,
+                        type: targetClassName,
+                        columnName: `${targetClassName.toLowerCase()}_id`,
+                        nullable: true,
+                        unique: false,
+                        isId: false,
+                        isRelation: true,
+                        relationType: 'ONE_TO_ONE',
+                        referencedIdType: targetIdType,
+                        foreignKey: {
+                            referencedTable: targetClass.name.toLowerCase(),
+                            onDelete: 'CASCADE',
+                            onUpdate: 'CASCADE',
+                        },
+                    });
+                }
+                else {
+                    const mappedByField = className.charAt(0).toLowerCase() + className.slice(1);
+                    console.log(`✅ [ONE_TO_ONE] Adding mappedBy field in ${className}: ${relationName} -> mappedBy="${mappedByField}"`);
+                    result.push({
+                        name: relationName,
+                        type: targetClassName,
+                        nullable: true,
+                        unique: false,
+                        isId: false,
+                        isRelation: true,
+                        relationType: 'ONE_TO_ONE',
+                        mappedBy: mappedByField,
+                    });
+                }
             }
         }
         return result;
@@ -273,9 +323,17 @@ let CodeGenerationService = class CodeGenerationService {
                 targetMultiplicity = relation.multiplicity.target || '1';
             }
         }
+        console.log(`🔍 [analyzeMultiplicity] isSource=${isSource}, source="${sourceMultiplicity}", target="${targetMultiplicity}"`);
         const isMany = (mult) => mult.includes('*') || mult.includes('n') || mult.includes('N');
+        const isOptional = (mult) => {
+            if (isMany(mult))
+                return false;
+            return mult.includes('0');
+        };
         const sourceIsMany = isMany(sourceMultiplicity);
         const targetIsMany = isMany(targetMultiplicity);
+        const sourceIsOptional = isOptional(sourceMultiplicity);
+        const targetIsOptional = isOptional(targetMultiplicity);
         if (sourceIsMany && targetIsMany) {
             return { type: 'MANY_TO_MANY', needsFk: false };
         }
@@ -296,7 +354,19 @@ let CodeGenerationService = class CodeGenerationService {
             }
         }
         else {
-            return { type: 'ONE_TO_ONE', needsFk: isSource };
+            console.log(`🔍 [ONE_TO_ONE] sourceIsOptional=${sourceIsOptional}, targetIsOptional=${targetIsOptional}`);
+            if (sourceIsOptional && !targetIsOptional) {
+                console.log(`✅ [ONE_TO_ONE] Source is optional (${sourceMultiplicity}), target is mandatory (${targetMultiplicity}) → FK in source, needsFk=${isSource}`);
+                return { type: 'ONE_TO_ONE', needsFk: isSource };
+            }
+            else if (!sourceIsOptional && targetIsOptional) {
+                console.log(`✅ [ONE_TO_ONE] Source is mandatory (${sourceMultiplicity}), target is optional (${targetMultiplicity}) → FK in target, needsFk=${!isSource}`);
+                return { type: 'ONE_TO_ONE', needsFk: !isSource };
+            }
+            else {
+                console.log(`✅ [ONE_TO_ONE] Both same (${sourceMultiplicity}, ${targetMultiplicity}) → FK in source by convention, needsFk=${isSource}`);
+                return { type: 'ONE_TO_ONE', needsFk: isSource };
+            }
         }
     }
     mapRelationType(relationType, isSource) {
@@ -354,6 +424,9 @@ let CodeGenerationService = class CodeGenerationService {
         };
         return sampleMap[javaType] || '""';
     }
+    toCamelCase(str) {
+        return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    }
     pluralize(word) {
         if (word.endsWith('y')) {
             return word.slice(0, -1) + 'ies';
@@ -388,13 +461,13 @@ let CodeGenerationService = class CodeGenerationService {
     }
     async generateFromTemplates(projectPath, data) {
         const templatesDir = path.join(__dirname, '../../templates/springboot');
-        const { projectName, basePackage, dbName, classes } = data;
+        const { projectName, basePackage, dbName, classes, relations } = data;
         const className = this.capitalize(projectName.replace(/-/g, ''));
         await this.renderTemplate(path.join(templatesDir, 'pom.xml.ejs'), path.join(projectPath, 'pom.xml'), { projectName });
         const appPath = `src/main/java/${basePackage.replace(/\./g, '/')}/`;
         await this.renderTemplate(path.join(templatesDir, 'Application.java.ejs'), path.join(projectPath, appPath, `${className}Application.java`), { basePackage, className });
         await this.renderTemplate(path.join(templatesDir, 'application.properties.ejs'), path.join(projectPath, 'src/main/resources/application.properties'), { projectName, dbName });
-        await this.renderTemplate(path.join(templatesDir, 'database.sql.ejs'), path.join(projectPath, 'database.sql'), { projectName, dbName, classes });
+        await this.renderTemplate(path.join(templatesDir, 'database.sql.ejs'), path.join(projectPath, 'database.sql'), { projectName, dbName, classes, relations });
         await this.renderTemplate(path.join(templatesDir, 'setup-database.bat.ejs'), path.join(projectPath, 'setup-database.bat'), { projectName, dbName, classes });
         await this.renderTemplate(path.join(templatesDir, '.env.example'), path.join(projectPath, '.env.example'), { projectName, dbName });
         await this.renderTemplate(path.join(templatesDir, '.env.ejs'), path.join(projectPath, '.env'), { projectName, dbName });

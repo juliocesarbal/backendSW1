@@ -64,16 +64,60 @@ DROP TABLE IF EXISTS <%= cls.tableName %> CASCADE;
 -- =====================================================
 -- Create tables
 -- =====================================================
+<%
+// DEBUG: Log inheritance relations
+if (typeof relations !== 'undefined' && relations) {
+  const inheritanceRels = relations.filter(r => r.type === 'INHERITANCE');
+  if (inheritanceRels.length > 0) {
+%>
+-- DEBUG: Found <%= inheritanceRels.length %> inheritance relation(s)
+<% inheritanceRels.forEach(rel => { %>
+-- DEBUG:   <%= rel.sourceClassId %> -> <%= rel.targetClassId %>
+<% }); %>
+<% } else { %>
+-- DEBUG: No inheritance relations found
+<% } %>
+<% } else { %>
+-- DEBUG: relations is undefined or null
+<% } %>
 
 <% classes.forEach(function(cls) { %>
 -- Table: <%= cls.tableName %>
 <%
 // Filter attributes that should be included as columns
-const columnsToInclude = cls.attributes.filter(a => !a.isRelation || (a.isRelation && a.relationType === 'MANY_TO_ONE'));
+// Include scalar attributes + MANY_TO_ONE + ONE_TO_ONE (with foreignKey, meaning it has the FK)
+const columnsToInclude = cls.attributes.filter(a => {
+  if (!a.isRelation) return true; // Include all scalar attributes
+  if (a.relationType === 'MANY_TO_ONE') return true; // Include MANY_TO_ONE (has FK)
+  if (a.relationType === 'ONE_TO_ONE' && a.foreignKey) return true; // Include ONE_TO_ONE only if it has FK
+  return false; // Exclude ONE_TO_MANY, MANY_TO_MANY, and ONE_TO_ONE without FK (mappedBy)
+});
+
+// Check if this class is a child in an inheritance relationship
+let isChildInInheritance = false;
+let inheritanceInfo = '';
+
+if (typeof relations !== 'undefined' && relations) {
+  const inheritanceRelation = relations.find(r => {
+    if (r.type !== 'INHERITANCE') return false;
+
+    // Direct ID matching (sourceClassId is the child, targetClassId is the parent)
+    const matches = r.sourceClassId === cls.id;
+    if (matches) {
+      inheritanceInfo = `child=${r.sourceClassId}, parent=${r.targetClassId}`;
+    }
+    return matches;
+  });
+
+  isChildInInheritance = !!inheritanceRelation;
+}
 %>
+<% if (isChildInInheritance) { %>
+-- DEBUG: <%= cls.tableName %> is child in inheritance (<%= inheritanceInfo %>)
+<% } %>
 CREATE TABLE <%= cls.tableName %> (
 <% columnsToInclude.forEach(function(attr, index) { %>
-    <%= attr.columnName %> <%= attr.isRelation && attr.relationType === 'MANY_TO_ONE' ? 'BIGINT' : getSqlType(attr.type) %><% if (attr.isId) { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% } else { %><% if (!attr.nullable) { %> NOT NULL<% } %><% if (attr.unique) { %> UNIQUE<% } %><% } %><% if (index < columnsToInclude.length - 1) { %>,<% } %>
+    <%= attr.columnName %> <%= (attr.isRelation && (attr.relationType === 'MANY_TO_ONE' || attr.relationType === 'ONE_TO_ONE')) ? 'BIGINT' : getSqlType(attr.type) %><% if (attr.isId) { %><% if (isChildInInheritance) { %> PRIMARY KEY<% } else { %> PRIMARY KEY GENERATED ALWAYS AS IDENTITY<% } %><% } else { %><% if (!attr.nullable) { %> NOT NULL<% } %><% if (attr.unique) { %> UNIQUE<% } %><% } %><% if (index < columnsToInclude.length - 1) { %>,<% } %>
 
 <% }); %>
 );
@@ -86,7 +130,8 @@ CREATE TABLE <%= cls.tableName %> (
 
 <% classes.forEach(function(cls) { %>
 <% cls.attributes.forEach(function(attr) { %>
-<% if (attr.isRelation && attr.relationType === 'MANY_TO_ONE' && attr.foreignKey) { %>
+<% if (attr.isRelation && (attr.relationType === 'MANY_TO_ONE' || attr.relationType === 'ONE_TO_ONE') && attr.foreignKey) { %>
+-- <%= attr.relationType %>: <%= cls.tableName %> -> <%= attr.foreignKey.referencedTable %>
 ALTER TABLE <%= cls.tableName %>
     ADD CONSTRAINT fk_<%= cls.tableName %>_<%= attr.foreignKey.referencedTable %>
     FOREIGN KEY (<%= attr.columnName %>)
@@ -104,7 +149,7 @@ ALTER TABLE <%= cls.tableName %>
 
 <% classes.forEach(function(cls) { %>
 <% cls.attributes.forEach(function(attr) { %>
-<% if (attr.isRelation && attr.relationType === 'MANY_TO_ONE') { %>
+<% if (attr.isRelation && (attr.relationType === 'MANY_TO_ONE' || attr.relationType === 'ONE_TO_ONE') && attr.foreignKey) { %>
 CREATE INDEX idx_<%= cls.tableName %>_<%= attr.columnName %>
     ON <%= cls.tableName %>(<%= attr.columnName %>);
 
@@ -210,7 +255,7 @@ CREATE INDEX idx_<%= attr.joinTable %>_<%= attr.inverseJoinColumn %>
 <% }); %>
 
 -- =====================================================
--- Add inheritance constraints (Table-per-Subtype pattern)
+-- Inheritance constraints (PK is also FK)
 -- =====================================================
 <%
 // Find inheritance relationships
@@ -220,27 +265,12 @@ const inheritanceRelations = (typeof relations !== 'undefined' && relations)
 
 if (inheritanceRelations.length > 0) {
 %>
--- Inheritance relationships detected (Generalization/Specialization)
+-- Inheritance relationships detected (child's PK is also FK to parent's PK)
 <% inheritanceRelations.forEach(function(rel) { %>
 <%
-  // Find child class (source) and parent class (target)
-  // Relations now use the actual class IDs from the diagram
-  const childClass = classes.find(c => {
-    // Try matching by various possible ID formats
-    const classId = c.className ? c.className.toLowerCase() : '';
-    return rel.sourceClassId === c.className ||
-           rel.sourceClassId === classId ||
-           rel.sourceClassId.includes(classId) ||
-           classId.includes(rel.sourceClassId.replace('class_', ''));
-  });
-
-  const parentClass = classes.find(c => {
-    const classId = c.className ? c.className.toLowerCase() : '';
-    return rel.targetClassId === c.className ||
-           rel.targetClassId === classId ||
-           rel.targetClassId.includes(classId) ||
-           classId.includes(rel.targetClassId.replace('class_', ''));
-  });
+  // Find child class (source) and parent class (target) by ID
+  const childClass = classes.find(c => c.id === rel.sourceClassId);
+  const parentClass = classes.find(c => c.id === rel.targetClassId);
 
   if (childClass && parentClass) {
     const childTable = childClass.tableName || childClass.className.toLowerCase();
@@ -249,11 +279,6 @@ if (inheritanceRelations.length > 0) {
     const parentPkColumn = getPrimaryKeyColumn(parentTable);
 %>
 -- Inheritance: <%= childTable %> extends <%= parentTable %>
--- Note: <%= childTable %> table should have '<%= childPkColumn %>' column that is both PK and FK to <%= parentTable %>(<%= parentPkColumn %>)
--- Table-per-Subtype pattern: child table's PK is also FK to parent's PK
-ALTER TABLE <%= childTable %>
-    DROP CONSTRAINT IF EXISTS fk_<%= childTable %>_<%= parentTable %>_inheritance;
-
 ALTER TABLE <%= childTable %>
     ADD CONSTRAINT fk_<%= childTable %>_<%= parentTable %>_inheritance
     FOREIGN KEY (<%= childPkColumn %>)

@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class <%= className %>DTO {
 <% attributes.forEach(function(attr) { %>
-<% if (!attr.isRelation || attr.relationType === 'MANY_TO_ONE') { %>
+<% if (!attr.isRelation || attr.relationType === 'MANY_TO_ONE' || (attr.relationType === 'ONE_TO_ONE' && attr.foreignKey)) { %>
 <% if (!attr.nullable && !attr.isId) { %>
     @NotNull(message = "<%= attr.name %> cannot be null")
 <% } %>
@@ -24,8 +24,8 @@ public class <%= className %>DTO {
 <% if (attr.unique) { %>
     // Unique field: <%= attr.name %>
 <% } %>
-<% var fieldName = attr.isRelation ? (attr.name.charAt(0).toLowerCase() + attr.name.slice(1) + 'Id') : attr.name; %>
-    private <%= attr.isRelation ? idType : attr.type %> <%= fieldName %>;
+<% var fieldName = attr.isRelation ? (attr.name + 'Id') : attr.name; %>
+    private <%= attr.isRelation ? (attr.referencedIdType || idType) : attr.type %> <%= fieldName %>;
 <% } %>
 <% }); %>
 }
