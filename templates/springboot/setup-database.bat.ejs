@@ -21,7 +21,7 @@ REM Detectar version de PostgreSQL instalada
 set PSQL_PATH=
 
 REM Intentar encontrar PostgreSQL automaticamente
-for %%v in (17 16 15 14 13) do (
+for %%v in (18 17 16 15 14 13) do (
     if exist "C:\Program Files\PostgreSQL\%%v\bin\psql.exe" (
         set PSQL_PATH=C:\Program Files\PostgreSQL\%%v\bin\psql.exe
         goto :found
