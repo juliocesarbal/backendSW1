@@ -12,7 +12,7 @@ export class AiChatService {
 
   // 🎯 Configuración de modelos de Claude - Cambia aquí para usar otro modelo
  private readonly CLAUDE_MODEL_MAIN = 'claude-sonnet-4-5-20250929';   // Modelo principal para tareas complejas
- private readonly CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';   // Modelo rápido / ligero   // Modelo rápido para tareas simples
+ private readonly CLAUDE_MODEL_FAST = 'claude-haiku-4-5-20251001';   // Modelo rápido / ligero   // Modelo rápido para tareas simples
  private readonly MaxTokens = 8192;  // Aumentado para análisis de imágenes complejas y diagramas grandes
  //El modelo principal al momento de la presentancion va a ser  'claude-sonnet-4-5-20250929'
   

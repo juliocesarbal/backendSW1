@@ -23,7 +23,7 @@ let AiChatService = class AiChatService {
         this.configService = configService;
         this.diagramService = diagramService;
         this.CLAUDE_MODEL_MAIN = 'claude-sonnet-4-5-20250929';
-        this.CLAUDE_MODEL_FAST = 'claude-3-5-haiku-20241022';
+        this.CLAUDE_MODEL_FAST = 'claude-haiku-4-5-20251001';
         this.MaxTokens = 8192;
         const apiKey = this.configService.get('CLAUDE_API_KEY');
         this.anthropic = new sdk_1.default({
@@ -484,7 +484,7 @@ These are TWO separate relationships:
   Relationship 2: producto_catalogo to Catalogo with { "source": "1", "target": "*" }`;
                     const claudeVisionMessage = await this.anthropic.messages.create({
                         model: this.CLAUDE_MODEL_MAIN,
-                        max_tokens: 8192,
+                        max_tokens: 12288,
                         messages: [
                             {
                                 role: 'user',
